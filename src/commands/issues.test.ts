@@ -873,6 +873,46 @@ describe("issues command", () => {
   });
 
   describe("--bulk-ignore flag", () => {
+    it("should error when --overview is combined with --bulk-ignore", async () => {
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "issues", "gh", "test-org", "test-repo",
+          "--bulk-ignore", "--overview",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(AnalysisService.bulkIgnoreIssues).not.toHaveBeenCalled();
+      expect(AnalysisService.searchRepositoryIssues).not.toHaveBeenCalled();
+
+      mockExit.mockRestore();
+    });
+
+    it("should error when --limit is explicitly combined with --bulk-ignore", async () => {
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "issues", "gh", "test-org", "test-repo",
+          "--bulk-ignore", "--limit", "10",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(AnalysisService.bulkIgnoreIssues).not.toHaveBeenCalled();
+      expect(AnalysisService.searchRepositoryIssues).not.toHaveBeenCalled();
+
+      mockExit.mockRestore();
+    });
+
     it("should fetch all FP issues with onlyPotentialFalsePositives: true and call bulkIgnoreIssues", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: mockIssues,
@@ -959,7 +999,7 @@ describe("issues command", () => {
       expect(secondCallIds).toHaveLength(50);
     });
 
-    it("should forward --comment to bulkIgnoreIssues", async () => {
+    it("should forward --ignore-comment to bulkIgnoreIssues", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: [mockIssues[0]],
       } as any);
@@ -969,7 +1009,7 @@ describe("issues command", () => {
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
         "--bulk-ignore",
-        "--comment", "Verified by security team",
+        "--ignore-comment", "Verified by security team",
       ]);
 
       expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalledWith(
