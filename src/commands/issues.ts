@@ -20,6 +20,9 @@ import { SearchRepositoryIssuesBody } from "../api/client/models/SearchRepositor
 import { Count } from "../api/client/models/Count";
 import { PatternsCount } from "../api/client/models/PatternsCount";
 
+// API allows a maximum of 100 issue IDs per bulk-ignore call
+const BULK_BATCH_SIZE = 100;
+
 const SEVERITY_ORDER: Record<string, number> = {
   Error: 0,
   High: 1,
@@ -185,6 +188,9 @@ export function registerIssuesCommand(program: Command) {
     .option("-a, --authors <authors>", "comma-separated list of author emails")
     .option("-n, --limit <n>", "maximum number of issues to return (default: 100, max: 1000)", "100")
     .option("-O, --overview", "show issue count totals instead of the issues list")
+    .option("-F, --false-positives", "only show issues that are potential false positives")
+    .option("-I, --bulk-ignore", "ignore all false positive issues matching the current filters")
+    .option("-m, --comment <comment>", "optional comment when using --bulk-ignore")
     .addHelpText(
       "after",
       `
@@ -194,6 +200,9 @@ Examples:
   $ codacy issues gh my-org my-repo --categories Security --overview
   $ codacy issues gh my-org my-repo --tools eslint,semgrep
   $ codacy issues gh my-org my-repo --limit 500
+  $ codacy issues gh my-org my-repo --false-positives
+  $ codacy issues gh my-org my-repo --bulk-ignore --branch main
+  $ codacy issues gh my-org my-repo --bulk-ignore --patterns security-rule --comment "Confirmed FPs"
   $ codacy issues gh my-org my-repo --output json`,
     )
     .action(async function (
@@ -207,6 +216,7 @@ Examples:
         const opts = this.opts();
         const format = getOutputFormat(this);
         const isOverview = !!opts.overview;
+        const isBulkIgnore = !!opts.bulkIgnore;
 
         // Build the shared filter body from CLI options
         const body: SearchRepositoryIssuesBody = {};
@@ -223,6 +233,8 @@ Examples:
         if (tags) body.tags = tags;
         const author = parseCommaList(opts.authors);
         if (author) body.authorEmails = author;
+        // --false-positives and --bulk-ignore both restrict the API query to FP issues only
+        if (opts.falsePositives || isBulkIgnore) body.onlyPotentialFalsePositives = true;
 
         const toolInputs = parseCommaList(opts.tools);
         if (toolInputs) {
@@ -239,6 +251,51 @@ Examples:
         }
 
         const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 100, 1), 1000);
+
+        // --bulk-ignore: fetch all FP issues (all pages) then call bulkIgnoreIssues in batches
+        if (isBulkIgnore) {
+          const fetchSpinner = ora("Fetching false positive issues...").start();
+          const allIssues: CommitIssue[] = [];
+          let cursor: string | undefined;
+
+          do {
+            const resp = await AnalysisService.searchRepositoryIssues(
+              provider,
+              organization,
+              repository,
+              cursor,
+              100,
+              body,
+            );
+            allIssues.push(...resp.data);
+            cursor = resp.pagination?.cursor;
+          } while (cursor);
+
+          fetchSpinner.stop();
+
+          if (allIssues.length === 0) {
+            console.log(ansis.green("No false positive issues found."));
+            return;
+          }
+
+          const count = allIssues.length;
+          const plural = count === 1 ? "" : "s";
+          console.log(`Found ${ansis.bold(String(count))} false positive issue${plural}.`);
+
+          const ignoreSpinner = ora(`Ignoring ${count} issue${plural}...`).start();
+          const issueIds = allIssues.map((i) => i.issueId);
+
+          for (let i = 0; i < issueIds.length; i += BULK_BATCH_SIZE) {
+            await AnalysisService.bulkIgnoreIssues(provider, organization, repository, {
+              issueIds: issueIds.slice(i, i + BULK_BATCH_SIZE),
+              reason: "FalsePositive",
+              comment: opts.comment || undefined,
+            });
+          }
+
+          ignoreSpinner.succeed(`Ignored ${ansis.bold(String(count))} false positive issue${plural}.`);
+          return;
+        }
 
         const spinner = ora(
           isOverview ? "Fetching issues overview..." : "Fetching issues...",

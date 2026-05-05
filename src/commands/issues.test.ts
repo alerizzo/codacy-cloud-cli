@@ -807,4 +807,202 @@ describe("issues command", () => {
 
     mockExit.mockRestore();
   });
+
+  describe("--false-positives flag", () => {
+    it("should pass onlyPotentialFalsePositives: true in the body", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--false-positives",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        { onlyPotentialFalsePositives: true },
+      );
+    });
+
+    it("should combine onlyPotentialFalsePositives with other filters (--patterns)", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--false-positives",
+        "--patterns", "no-undef,sql-injection",
+        "--branch", "main",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        {
+          onlyPotentialFalsePositives: true,
+          patternIds: ["no-undef", "sql-injection"],
+          branchName: "main",
+        },
+      );
+    });
+
+    it("should display false positive issues in list format", async () => {
+      const fpIssue = {
+        ...mockIssues[0],
+        falsePositiveProbability: 0.9,
+        falsePositiveThreshold: 0.5,
+        falsePositiveReason: "Common safe pattern",
+      };
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [fpIssue],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--false-positives",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Potential SQL injection vulnerability");
+      expect(output).toContain("Potential false positive");
+    });
+  });
+
+  describe("--bulk-ignore flag", () => {
+    it("should fetch all FP issues with onlyPotentialFalsePositives: true and call bulkIgnoreIssues", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: mockIssues,
+      } as any);
+      vi.mocked(AnalysisService.bulkIgnoreIssues).mockResolvedValue(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--bulk-ignore",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        { onlyPotentialFalsePositives: true },
+      );
+      expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo",
+        {
+          issueIds: [mockIssues[0].issueId, mockIssues[1].issueId],
+          reason: "FalsePositive",
+          comment: undefined,
+        },
+      );
+    });
+
+    it("should show 'No false positive issues found' when API returns empty list", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--bulk-ignore",
+      ]);
+
+      expect(AnalysisService.bulkIgnoreIssues).not.toHaveBeenCalled();
+      const output = getAllOutput();
+      expect(output).toContain("No false positive issues found");
+    });
+
+    it("should batch bulkIgnoreIssues calls when there are more than 100 issues", async () => {
+      // 150 issues across two pages
+      const page1 = Array.from({ length: 100 }, (_, i) => ({
+        ...mockIssues[0],
+        issueId: `fp-${i}`,
+        resultDataId: i,
+      }));
+      const page2 = Array.from({ length: 50 }, (_, i) => ({
+        ...mockIssues[0],
+        issueId: `fp-${100 + i}`,
+        resultDataId: 100 + i,
+      }));
+
+      vi.mocked(AnalysisService.searchRepositoryIssues)
+        .mockResolvedValueOnce({
+          data: page1,
+          pagination: { cursor: "cursor-2", limit: 100, total: 150 },
+        } as any)
+        .mockResolvedValueOnce({
+          data: page2,
+          pagination: { cursor: undefined, limit: 100, total: 150 },
+        } as any);
+      vi.mocked(AnalysisService.bulkIgnoreIssues).mockResolvedValue(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--bulk-ignore",
+      ]);
+
+      // Should have made 2 search calls (paginated)
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledTimes(2);
+      // Should have made 2 bulk-ignore calls: one with 100 IDs, one with 50 IDs
+      expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalledTimes(2);
+      expect(AnalysisService.bulkIgnoreIssues).toHaveBeenNthCalledWith(
+        1, "gh", "test-org", "test-repo",
+        expect.objectContaining({ issueIds: expect.arrayContaining([expect.stringMatching(/^fp-/)]) }),
+      );
+      const firstCallIds: string[] = (AnalysisService.bulkIgnoreIssues as ReturnType<typeof vi.fn>).mock.calls[0][3].issueIds;
+      expect(firstCallIds).toHaveLength(100);
+      const secondCallIds: string[] = (AnalysisService.bulkIgnoreIssues as ReturnType<typeof vi.fn>).mock.calls[1][3].issueIds;
+      expect(secondCallIds).toHaveLength(50);
+    });
+
+    it("should forward --comment to bulkIgnoreIssues", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [mockIssues[0]],
+      } as any);
+      vi.mocked(AnalysisService.bulkIgnoreIssues).mockResolvedValue(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--bulk-ignore",
+        "--comment", "Verified by security team",
+      ]);
+
+      expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo",
+        {
+          issueIds: [mockIssues[0].issueId],
+          reason: "FalsePositive",
+          comment: "Verified by security team",
+        },
+      );
+    });
+
+    it("should combine --bulk-ignore with other filters (--branch, --patterns)", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--bulk-ignore",
+        "--branch", "develop",
+        "--patterns", "sql-injection",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        {
+          onlyPotentialFalsePositives: true,
+          branchName: "develop",
+          patternIds: ["sql-injection"],
+        },
+      );
+    });
+  });
 });
