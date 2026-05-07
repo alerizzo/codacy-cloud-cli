@@ -849,6 +849,40 @@ describe("issues command", () => {
       );
     });
 
+    it("should pass onlyPotentialFalsePositives: false when --false-positives false", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--false-positives", "false",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        { onlyPotentialFalsePositives: false },
+      );
+    });
+
+    it("should pass onlyPotentialFalsePositives: true when --false-positives true", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--false-positives", "true",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        { onlyPotentialFalsePositives: true },
+      );
+    });
+
     it("should display false positive issues in list format", async () => {
       const fpIssue = {
         ...mockIssues[0],
@@ -872,8 +906,8 @@ describe("issues command", () => {
     });
   });
 
-  describe("--bulk-ignore flag", () => {
-    it("should error when --overview is combined with --bulk-ignore", async () => {
+  describe("--ignore flag", () => {
+    it("should error when --overview is combined with --ignore", async () => {
       const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
         throw new Error("process.exit called");
       });
@@ -883,7 +917,7 @@ describe("issues command", () => {
       await expect(
         program.parseAsync([
           "node", "test", "issues", "gh", "test-org", "test-repo",
-          "--bulk-ignore", "--overview",
+          "--ignore", "--overview",
         ]),
       ).rejects.toThrow("process.exit called");
 
@@ -893,7 +927,7 @@ describe("issues command", () => {
       mockExit.mockRestore();
     });
 
-    it("should error when --limit is explicitly combined with --bulk-ignore", async () => {
+    it("should error when --limit is explicitly combined with --ignore", async () => {
       const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
         throw new Error("process.exit called");
       });
@@ -903,7 +937,7 @@ describe("issues command", () => {
       await expect(
         program.parseAsync([
           "node", "test", "issues", "gh", "test-org", "test-repo",
-          "--bulk-ignore", "--limit", "10",
+          "--ignore", "--limit", "10",
         ]),
       ).rejects.toThrow("process.exit called");
 
@@ -913,7 +947,7 @@ describe("issues command", () => {
       mockExit.mockRestore();
     });
 
-    it("should fetch all FP issues with onlyPotentialFalsePositives: true and call bulkIgnoreIssues", async () => {
+    it("should fetch all issues and call bulkIgnoreIssues with default reason AcceptedUse", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: mockIssues,
       } as any);
@@ -922,24 +956,24 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--bulk-ignore",
+        "--ignore",
       ]);
 
       expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
         "gh", "test-org", "test-repo", undefined, 100,
-        { onlyPotentialFalsePositives: true },
+        {},
       );
       expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalledWith(
         "gh", "test-org", "test-repo",
         {
           issueIds: [mockIssues[0].issueId, mockIssues[1].issueId],
-          reason: "FalsePositive",
+          reason: "AcceptedUse",
           comment: undefined,
         },
       );
     });
 
-    it("should show 'No false positive issues found' when API returns empty list", async () => {
+    it("should show 'No issues found' when API returns empty list", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: [],
       } as any);
@@ -947,12 +981,12 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--bulk-ignore",
+        "--ignore",
       ]);
 
       expect(AnalysisService.bulkIgnoreIssues).not.toHaveBeenCalled();
       const output = getAllOutput();
-      expect(output).toContain("No false positive issues found");
+      expect(output).toContain("No issues found matching the current filters");
     });
 
     it("should batch bulkIgnoreIssues calls when there are more than 100 issues", async () => {
@@ -982,7 +1016,7 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--bulk-ignore",
+        "--ignore",
       ]);
 
       // Should have made 2 search calls (paginated)
@@ -1008,7 +1042,7 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--bulk-ignore",
+        "--ignore",
         "--ignore-comment", "Verified by security team",
       ]);
 
@@ -1016,13 +1050,13 @@ describe("issues command", () => {
         "gh", "test-org", "test-repo",
         {
           issueIds: [mockIssues[0].issueId],
-          reason: "FalsePositive",
+          reason: "AcceptedUse",
           comment: "Verified by security team",
         },
       );
     });
 
-    it("should combine --bulk-ignore with other filters (--branch, --patterns)", async () => {
+    it("should combine --ignore with other filters (--branch, --patterns)", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: [],
       } as any);
@@ -1030,7 +1064,7 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--bulk-ignore",
+        "--ignore",
         "--branch", "develop",
         "--patterns", "sql-injection",
       ]);
@@ -1038,9 +1072,58 @@ describe("issues command", () => {
       expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
         "gh", "test-org", "test-repo", undefined, 100,
         {
-          onlyPotentialFalsePositives: true,
           branchName: "develop",
           patternIds: ["sql-injection"],
+        },
+      );
+    });
+
+    it("should pass --ignore-reason to bulkIgnoreIssues", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [mockIssues[0]],
+      } as any);
+      vi.mocked(AnalysisService.bulkIgnoreIssues).mockResolvedValue(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignore",
+        "--ignore-reason", "FalsePositive",
+      ]);
+
+      expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo",
+        {
+          issueIds: [mockIssues[0].issueId],
+          reason: "FalsePositive",
+          comment: undefined,
+        },
+      );
+    });
+
+    it("should combine --ignore with --false-positives to ignore only FP issues", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [mockIssues[0]],
+      } as any);
+      vi.mocked(AnalysisService.bulkIgnoreIssues).mockResolvedValue(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignore",
+        "--false-positives",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", undefined, 100,
+        { onlyPotentialFalsePositives: true },
+      );
+      expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo",
+        {
+          issueIds: [mockIssues[0].issueId],
+          reason: "AcceptedUse",
+          comment: undefined,
         },
       );
     });

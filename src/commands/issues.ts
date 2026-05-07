@@ -80,6 +80,10 @@ function normalizeCategory(input: string): string {
   return CATEGORY_NORMALIZE[key] ?? input;
 }
 
+function parseBooleanOption(value: string): boolean {
+  return value.toLowerCase() !== "false";
+}
+
 
 function printIssuesList(issues: CommitIssue[], total: number): void {
   printSection("Issues", total, "issue");
@@ -203,8 +207,8 @@ async function buildFilterBody(opts: Record<string, any>): Promise<SearchReposit
   const author = parseCommaList(opts.authors);
   if (author) body.authorEmails = author;
 
-  // --false-positives and --bulk-ignore both restrict the API query to FP issues only
-  if (opts.falsePositives || opts.bulkIgnore) body.onlyPotentialFalsePositives = true;
+  if (opts.falsePositives === true) body.onlyPotentialFalsePositives = true;
+  else if (opts.falsePositives === false) body.onlyPotentialFalsePositives = false;
 
   const toolInputs = parseCommaList(opts.tools);
   if (toolInputs) body.toolUuids = await resolveToolUuids(toolInputs, fetchAllTools);
@@ -221,9 +225,10 @@ async function executeBulkIgnore(
   organization: string,
   repository: string,
   body: SearchRepositoryIssuesBody,
+  reason: string,
   comment: string | undefined,
 ): Promise<void> {
-  const fetchSpinner = ora("Fetching false positive issues...").start();
+  const fetchSpinner = ora("Fetching issues...").start();
   const allIssues: CommitIssue[] = [];
   let cursor: string | undefined;
 
@@ -243,13 +248,13 @@ async function executeBulkIgnore(
   fetchSpinner.stop();
 
   if (allIssues.length === 0) {
-    console.log(ansis.green("No false positive issues found."));
+    console.log(ansis.green("No issues found matching the current filters."));
     return;
   }
 
   const count = allIssues.length;
   const plural = count === 1 ? "" : "s";
-  console.log(`Found ${ansis.bold(String(count))} false positive issue${plural}.`);
+  console.log(`Found ${ansis.bold(String(count))} issue${plural}.`);
 
   const ignoreSpinner = ora(`Ignoring ${count} issue${plural}...`).start();
   const issueIds = allIssues.map((i) => i.issueId);
@@ -257,12 +262,12 @@ async function executeBulkIgnore(
   for (let i = 0; i < issueIds.length; i += BULK_BATCH_SIZE) {
     await AnalysisService.bulkIgnoreIssues(provider, organization, repository, {
       issueIds: issueIds.slice(i, i + BULK_BATCH_SIZE),
-      reason: "FalsePositive",
+      reason,
       comment: comment || undefined,
     });
   }
 
-  ignoreSpinner.succeed(`Ignored ${ansis.bold(String(count))} false positive issue${plural}.`);
+  ignoreSpinner.succeed(`Ignored ${ansis.bold(String(count))} issue${plural}.`);
 }
 
 export function registerIssuesCommand(program: Command) {
@@ -289,9 +294,14 @@ export function registerIssuesCommand(program: Command) {
     .option("-a, --authors <authors>", "comma-separated list of author emails")
     .option("-n, --limit <n>", "maximum number of issues to return (default: 100, max: 1000)", "100")
     .option("-O, --overview", "show issue count totals instead of the issues list")
-    .option("-F, --false-positives", "only show issues that are potential false positives")
-    .option("-I, --bulk-ignore", "ignore all false positive issues matching the current filters")
-    .option("-m, --ignore-comment <comment>", "optional comment when using --bulk-ignore")
+    .option("-F, --false-positives [value]", "filter by potential false positives (true, false, or omit)", parseBooleanOption)
+    .option("-I, --ignore", "ignore all issues matching the current filters")
+    .option(
+      "-R, --ignore-reason <reason>",
+      "reason for ignoring (AcceptedUse|FalsePositive|NotExploitable|TestCode|ExternalCode)",
+      "AcceptedUse",
+    )
+    .option("-m, --ignore-comment <comment>", "optional comment when using --ignore")
     .addHelpText(
       "after",
       `
@@ -302,8 +312,10 @@ Examples:
   $ codacy issues gh my-org my-repo --tools eslint,semgrep
   $ codacy issues gh my-org my-repo --limit 500
   $ codacy issues gh my-org my-repo --false-positives
-  $ codacy issues gh my-org my-repo --bulk-ignore --branch main
-  $ codacy issues gh my-org my-repo --bulk-ignore --patterns security-rule --ignore-comment "Confirmed FPs"
+  $ codacy issues gh my-org my-repo --false-positives false
+  $ codacy issues gh my-org my-repo --ignore --branch main
+  $ codacy issues gh my-org my-repo --false-positives --ignore --ignore-reason FalsePositive
+  $ codacy issues gh my-org my-repo --ignore --ignore-reason NotExploitable --ignore-comment "Reviewed"
   $ codacy issues gh my-org my-repo --output json`,
     )
     .action(async function (
@@ -321,14 +333,14 @@ Examples:
         const body = await buildFilterBody(opts);
         const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 100, 1), 1000);
 
-        if (opts.bulkIgnore) {
+        if (opts.ignore) {
           if (isOverview) {
-            this.error("--overview cannot be used with --bulk-ignore; --overview is a read-only display mode");
+            this.error("--overview cannot be used with --ignore; --overview is a read-only display mode");
           }
           if (this.getOptionValueSource("limit") === "cli") {
-            this.error("--limit cannot be used with --bulk-ignore; the bulk-ignore path always processes all matching issues");
+            this.error("--limit cannot be used with --ignore; the --ignore path always processes all matching issues");
           }
-          await executeBulkIgnore(provider, organization, repository, body, opts.ignoreComment);
+          await executeBulkIgnore(provider, organization, repository, body, opts.ignoreReason, opts.ignoreComment);
           return;
         }
 

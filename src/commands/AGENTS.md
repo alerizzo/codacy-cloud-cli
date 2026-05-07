@@ -131,6 +131,19 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
 - **`--unignore` mode** (`-U`): calls `AnalysisService.updateIssueState` with `{ ignored: false }`; skips rendering issue details
 - The API uses the string UUID (`issue.issueId`), not the numeric `resultDataId`, for the `updateIssueState` call
 
+## issues command (`issues.ts`)
+
+- Takes `<provider>`, `<organization>`, and `<repository>` as required arguments
+- **List mode** (default): card-style format sorted by severity (Error > High > Warning > Info)
+- **Overview mode** (`-O, --overview`): six count tables — Category, Severity, Language, Tag, Pattern, Author
+- **Filters**: `--branch`, `--patterns`, `--tools`, `--severities`, `--categories`, `--languages`, `--tags`, `--authors`, `--limit`
+- **`--false-positives [value]`** (`-F`): tri-state filter — `true` (default when flag present) sends `onlyPotentialFalsePositives: true`, `false` sends `onlyPotentialFalsePositives: false`, omitted sends nothing
+- **`--ignore` mode** (`-I`): fetches all issues matching current filters (all pages), then calls `AnalysisService.bulkIgnoreIssues` in batches of 100
+  - `-R, --ignore-reason`: `AcceptedUse` (default) | `FalsePositive` | `NotExploitable` | `TestCode` | `ExternalCode`
+  - `-m, --ignore-comment`: optional free-text comment
+  - Cannot be combined with `--overview` or `--limit`
+  - Works with any combination of filters; use `--false-positives --ignore` to ignore only FP issues
+
 ## finding command (`finding.ts`)
 
 - Takes `<provider>`, `<organization>`, and `<findingId>` (UUID shown on finding cards) as required arguments — **no `<repository>` argument**
