@@ -24,6 +24,7 @@ This CLI wraps the [Codacy Cloud API v3](https://api.codacy.com/api/api-docs) us
 
 ```
 codacy-cloud-cli/
+├── .changeset/                  # Changesets config and pending changeset files
 ├── src/
 │   ├── index.ts                 # CLI entry point (Commander.js setup)
 │   ├── api/
@@ -172,6 +173,35 @@ The `SPECS/` folder at the project root is the single source of truth for specs 
 3. Read the relevant `SPECS/commands/<command>.md` before implementing a command
 4. Update `SPECS/README.md` (mark tasks done, add changelog entry) when completing work
 5. Add new tasks to `SPECS/README.md` pending table when discovered during work
+
+## Versioning & Releasing
+
+This project uses [changesets](https://github.com/changesets/changesets) for versioning and npm publishing.
+
+### How it works
+
+1. Every PR must include a changeset file (CI enforces this via the `changeset-check` job)
+2. Run `npx changeset` to create one — select the bump type (`patch`, `minor`, `major`) and describe the change
+3. For PRs that don't need a version bump (docs, CI, refactors), use `npx changeset --empty`
+4. On merge to `main`, the `release.yml` workflow creates a "chore: version packages" PR that bumps the version and updates `CHANGELOG.md`
+5. Merging that PR triggers the actual npm publish with provenance
+
+### Agent responsibilities for changesets
+
+When completing work that changes user-facing behavior or adds features, agents **must**:
+1. Run `npx changeset` and create an appropriate changeset file before committing
+2. Use `patch` for bug fixes, `minor` for new features or commands, `major` for breaking changes
+3. Write a clear, user-facing summary in the changeset (this becomes the CHANGELOG entry)
+
+For internal-only changes (refactors, docs, CI, test-only changes), use `npx changeset --empty`.
+
+### Agent responsibilities for self-documenting changes
+
+When completing work, agents **must** update relevant documentation:
+1. **`SPECS/README.md`** — mark tasks as done in the pending table, add a changelog entry
+2. **`README.md`** — if a new command was added or renamed, update the commands summary table (one row per command, no detailed args/options)
+3. **`AGENTS.md`** — if a new convention, pattern, or workflow was introduced that affects how agents work, add it to the relevant section
+4. **`SPECS/deployment.md`** — if CI/CD or publishing workflows changed, update this spec to match
 
 ## Environment Variables
 

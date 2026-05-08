@@ -37,3 +37,25 @@ jobs:
 
       - name: Test
         run: npm test
+
+  changeset-check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changesets
+        run: |
+          # Count .changeset/*.md files added/modified in this PR compared to the base branch
+          CHANGESETS=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- '.changeset/*.md' ':!.changeset/README.md' | wc -l)
+          if [ "$CHANGESETS" -eq 0 ]; then
+            echo "::error::No changeset found for this PR. Run 'npx changeset' to describe your changes."
+            echo ""
+            echo "If this PR does not require a version bump (e.g., docs-only or CI changes),"
+            echo "add an empty changeset with: npx changeset --empty"
+            exit 1
+          fi
+          echo "Found $CHANGESETS changeset file(s) changed in this PR."
