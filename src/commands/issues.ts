@@ -10,7 +10,11 @@ import {
   printJson,
   printPaginationWarning,
 } from "../utils/output";
-import { printSection, printIssueCard, resolveToolUuids } from "../utils/formatting";
+import {
+  printSection,
+  printIssueCard,
+  resolveToolUuids,
+} from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { Tool } from "../api/client/models/Tool";
@@ -83,7 +87,6 @@ function normalizeCategory(input: string): string {
 function parseBooleanOption(value: string): boolean {
   return value.toLowerCase() !== "false";
 }
-
 
 function printIssuesList(issues: CommitIssue[], total: number): void {
   printSection("Issues", total, "issue");
@@ -184,7 +187,9 @@ async function fetchAllTools(): Promise<Tool[]> {
  * Build the SearchRepositoryIssuesBody from parsed CLI options.
  * Resolves tool names/UUIDs via the Codacy API when --tools is provided.
  */
-async function buildFilterBody(opts: Record<string, any>): Promise<SearchRepositoryIssuesBody> {
+async function buildFilterBody(
+  opts: Record<string, any>,
+): Promise<SearchRepositoryIssuesBody> {
   const body: SearchRepositoryIssuesBody = {};
 
   if (opts.branch) body.branchName = opts.branch;
@@ -207,11 +212,12 @@ async function buildFilterBody(opts: Record<string, any>): Promise<SearchReposit
   const author = parseCommaList(opts.authors);
   if (author) body.authorEmails = author;
 
-  if (opts.falsePositives === true) body.onlyPotentialFalsePositives = true;
-  else if (opts.falsePositives === false) body.onlyPotentialFalsePositives = false;
+  if (opts.falsePositives === true) body.potentialFalsePositives = true;
+  else if (opts.falsePositives === false) body.potentialFalsePositives = false;
 
   const toolInputs = parseCommaList(opts.tools);
-  if (toolInputs) body.toolUuids = await resolveToolUuids(toolInputs, fetchAllTools);
+  if (toolInputs)
+    body.toolUuids = await resolveToolUuids(toolInputs, fetchAllTools);
 
   return body;
 }
@@ -226,7 +232,7 @@ async function executeBulkIgnore(
   repository: string,
   body: SearchRepositoryIssuesBody,
   reason: string,
-  comment: string | undefined,
+  comment?: string,
 ): Promise<void> {
   const fetchSpinner = ora("Fetching issues...").start();
   const allIssues: CommitIssue[] = [];
@@ -263,11 +269,14 @@ async function executeBulkIgnore(
     await AnalysisService.bulkIgnoreIssues(provider, organization, repository, {
       issueIds: issueIds.slice(i, i + BULK_BATCH_SIZE),
       reason,
-      comment: comment || undefined,
+      comment,
     });
   }
 
   ignoreSpinner.succeed(`Ignored ${ansis.bold(String(count))} issue${plural}.`);
+  console.log(
+    ansis.dim(`Run a new analysis to see changes reflected: codacy repository ${provider} ${organization} ${repository} --reanalyze`),
+  );
 }
 
 export function registerIssuesCommand(program: Command) {
@@ -278,9 +287,15 @@ export function registerIssuesCommand(program: Command) {
     .argument("<provider>", "git provider (gh, gl, or bb)")
     .argument("<organization>", "organization name")
     .argument("<repository>", "repository name")
-    .option("-b, --branch <branch>", "branch name (defaults to the main branch)")
+    .option(
+      "-b, --branch <branch>",
+      "branch name (defaults to the main branch)",
+    )
     .option("-p, --patterns <patterns>", "comma-separated list of pattern IDs")
-    .option("-T, --tools <tools>", "comma-separated tool UUIDs or names to filter by")
+    .option(
+      "-T, --tools <tools>",
+      "comma-separated tool UUIDs or names to filter by",
+    )
     .option(
       "-s, --severities <severities>",
       "comma-separated severity levels: Critical, High, Medium, Minor (or Error, Warning, Info)",
@@ -289,19 +304,36 @@ export function registerIssuesCommand(program: Command) {
       "-c, --categories <categories>",
       "comma-separated category names (e.g. Security, CodeStyle, ErrorProne)",
     )
-    .option("-l, --languages <languages>", "comma-separated list of language names")
+    .option(
+      "-l, --languages <languages>",
+      "comma-separated list of language names",
+    )
     .option("-t, --tags <tags>", "comma-separated list of tag names")
     .option("-a, --authors <authors>", "comma-separated list of author emails")
-    .option("-n, --limit <n>", "maximum number of issues to return (default: 100, max: 1000)", "100")
-    .option("-O, --overview", "show issue count totals instead of the issues list")
-    .option("-F, --false-positives [value]", "filter by potential false positives (true, false, or omit)", parseBooleanOption)
+    .option(
+      "-n, --limit <n>",
+      "maximum number of issues to return (default: 100, max: 1000)",
+      "100",
+    )
+    .option(
+      "-O, --overview",
+      "show issue count totals instead of the issues list",
+    )
+    .option(
+      "-F, --false-positives [value]",
+      "filter by potential false positives (true, false, or omit)",
+      parseBooleanOption,
+    )
     .option("-I, --ignore", "ignore all issues matching the current filters")
     .option(
       "-R, --ignore-reason <reason>",
       "reason for ignoring (AcceptedUse|FalsePositive|NotExploitable|TestCode|ExternalCode)",
       "AcceptedUse",
     )
-    .option("-m, --ignore-comment <comment>", "optional comment when using --ignore")
+    .option(
+      "-m, --ignore-comment <comment>",
+      "optional comment when using --ignore",
+    )
     .addHelpText(
       "after",
       `
@@ -331,16 +363,30 @@ Examples:
         const isOverview = !!opts.overview;
 
         const body = await buildFilterBody(opts);
-        const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 100, 1), 1000);
+        const limit = Math.min(
+          Math.max(parseInt(opts.limit, 10) || 100, 1),
+          1000,
+        );
 
         if (opts.ignore) {
           if (isOverview) {
-            this.error("--overview cannot be used with --ignore; --overview is a read-only display mode");
+            this.error(
+              "--overview cannot be used with --ignore; --overview is a read-only display mode",
+            );
           }
           if (this.getOptionValueSource("limit") === "cli") {
-            this.error("--limit cannot be used with --ignore; the --ignore path always processes all matching issues");
+            this.error(
+              "--limit cannot be used with --ignore; the ignore path always processes all matching issues",
+            );
           }
-          await executeBulkIgnore(provider, organization, repository, body, opts.ignoreReason, opts.ignoreComment);
+          await executeBulkIgnore(
+            provider,
+            organization,
+            repository,
+            body,
+            opts.ignoreReason,
+            opts.ignoreComment,
+          );
           return;
         }
 
@@ -360,14 +406,16 @@ Examples:
           const counts = overviewResponse.data.counts;
 
           if (format === "json") {
-            printJson(pickDeep({ overview: counts }, [
-              "overview.categories",
-              "overview.levels",
-              "overview.languages",
-              "overview.tags",
-              "overview.patterns",
-              "overview.authors",
-            ]));
+            printJson(
+              pickDeep({ overview: counts }, [
+                "overview.categories",
+                "overview.levels",
+                "overview.languages",
+                "overview.tags",
+                "overview.patterns",
+                "overview.authors",
+              ]),
+            );
             return;
           }
 
@@ -405,20 +453,24 @@ Examples:
           spinner.stop();
 
           if (format === "json") {
-            printJson({ issues: issues.map((issue: any) => pickDeep(issue, [
-              "patternInfo.id",
-              "patternInfo.severityLevel",
-              "patternInfo.category",
-              "patternInfo.subCategory",
-              "message",
-              "filePath",
-              "lineNumber",
-              "lineText",
-              "resultDataId",
-              "falsePositiveProbability",
-              "falsePositiveThreshold",
-              "falsePositiveReason",
-            ])) });
+            printJson({
+              issues: issues.map((issue: any) =>
+                pickDeep(issue, [
+                  "patternInfo.id",
+                  "patternInfo.severityLevel",
+                  "patternInfo.category",
+                  "patternInfo.subCategory",
+                  "message",
+                  "filePath",
+                  "lineNumber",
+                  "lineText",
+                  "resultDataId",
+                  "falsePositiveProbability",
+                  "falsePositiveThreshold",
+                  "falsePositiveReason",
+                ]),
+              ),
+            });
             return;
           }
 

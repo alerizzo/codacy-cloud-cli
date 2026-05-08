@@ -809,7 +809,7 @@ describe("issues command", () => {
   });
 
   describe("--false-positives flag", () => {
-    it("should pass onlyPotentialFalsePositives: true in the body", async () => {
+    it("should pass potentialFalsePositives: true in the body", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: [],
       } as any);
@@ -822,11 +822,11 @@ describe("issues command", () => {
 
       expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
         "gh", "test-org", "test-repo", undefined, 100,
-        { onlyPotentialFalsePositives: true },
+        { potentialFalsePositives: true },
       );
     });
 
-    it("should combine onlyPotentialFalsePositives with other filters (--patterns)", async () => {
+    it("should combine potentialFalsePositives with other filters (--patterns)", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: [],
       } as any);
@@ -842,14 +842,14 @@ describe("issues command", () => {
       expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
         "gh", "test-org", "test-repo", undefined, 100,
         {
-          onlyPotentialFalsePositives: true,
+          potentialFalsePositives: true,
           patternIds: ["no-undef", "sql-injection"],
           branchName: "main",
         },
       );
     });
 
-    it("should pass onlyPotentialFalsePositives: false when --false-positives false", async () => {
+    it("should pass potentialFalsePositives: false when --false-positives false", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: [],
       } as any);
@@ -862,11 +862,11 @@ describe("issues command", () => {
 
       expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
         "gh", "test-org", "test-repo", undefined, 100,
-        { onlyPotentialFalsePositives: false },
+        { potentialFalsePositives: false },
       );
     });
 
-    it("should pass onlyPotentialFalsePositives: true when --false-positives true", async () => {
+    it("should pass potentialFalsePositives: true when --false-positives true", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: [],
       } as any);
@@ -879,7 +879,7 @@ describe("issues command", () => {
 
       expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
         "gh", "test-org", "test-repo", undefined, 100,
-        { onlyPotentialFalsePositives: true },
+        { potentialFalsePositives: true },
       );
     });
 
@@ -1116,7 +1116,7 @@ describe("issues command", () => {
 
       expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
         "gh", "test-org", "test-repo", undefined, 100,
-        { onlyPotentialFalsePositives: true },
+        { potentialFalsePositives: true },
       );
       expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalledWith(
         "gh", "test-org", "test-repo",

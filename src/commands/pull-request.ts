@@ -800,6 +800,9 @@ Examples:
           spinner.succeed(
             `Issue #${ignoreIssueId} ignored (reason: ${ignoreReason}).`,
           );
+          console.log(
+            ansis.dim(`Run a new analysis to see changes reflected: codacy pull-request ${provider} ${organization} ${repository} ${prNumber} --reanalyze`),
+          );
           return;
         }
 
@@ -840,6 +843,9 @@ Examples:
           );
           spinner.succeed(
             `Ignored ${toIgnore.length} potential false positive issue(s) (reason: FalsePositive).`,
+          );
+          console.log(
+            ansis.dim(`Run a new analysis to see changes reflected: codacy pull-request ${provider} ${organization} ${repository} ${prNumber} --reanalyze`),
           );
           return;
         }

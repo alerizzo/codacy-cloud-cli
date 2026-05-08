@@ -149,6 +149,9 @@ Examples:
           ignoreSpinner.succeed(
             `Issue #${issueId} ignored (reason: ${ignoreReason}).`,
           );
+          console.log(
+            ansis.dim(`Run a new analysis to see changes reflected: codacy repository ${provider} ${organization} ${repository} --reanalyze`),
+          );
         }
 
         if (shouldUnignore) {
