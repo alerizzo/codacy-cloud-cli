@@ -33,7 +33,13 @@ Both accept the same `SearchRepositoryIssuesBody` for filtering.
 | `--languages <languages>` | `-l` | Comma-separated language names |
 | `--tags <tags>` | `-t` | Comma-separated tag names |
 | `--authors <authors>` | `-a` | Comma-separated author emails |
+| `--tools <tools>` | `-T` | Comma-separated tool UUIDs or names |
+| `--limit <n>` | `-n` | Maximum number of issues (default: 100, max: 1000) |
 | `--overview` | `-O` | Show overview counts instead of list |
+| `--false-positives [value]` | `-F` | Filter by potential false positives (true, false, or omit) |
+| `--ignore` | `-I` | Ignore all issues matching current filters |
+| `--ignore-reason <reason>` | `-R` | Reason for ignoring (AcceptedUse, FalsePositive, NotExploitable, TestCode, ExternalCode) |
+| `--ignore-comment <comment>` | `-m` | Optional comment when using --ignore |
 
 ## Output
 
@@ -64,4 +70,4 @@ Six count tables sorted descending by count: Category, Severity, Language, Tag, 
 
 ## Tests
 
-File: `src/commands/issues.test.ts` — 11 tests.
+File: `src/commands/issues.test.ts` — 39 tests.
