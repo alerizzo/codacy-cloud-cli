@@ -89,14 +89,17 @@ npm run update-api       # Update the auto-generated API client
 ### CI/CD
 
 - **CI**: Runs on every push to `main` and on PRs. Builds and tests across Node.js 18, 20, and 22.
-- **Publish**: Triggered on GitHub release creation. Builds, tests, and publishes to npm with provenance.
+- **Release**: Uses [changesets](https://github.com/changesets/changesets) for automated versioning and npm publishing.
 
-To publish a new version:
-1. Update the version in `package.json`
-2. Create a GitHub release with a tag matching the version (e.g. `v1.1.0`)
-3. The publish workflow will automatically build and push to npm
+#### Publishing a new version
 
-**Prerequisite**: Add an `NPM_TOKEN` secret to your GitHub repository settings.
+1. When making changes, run `npx changeset` and describe your change (select `patch`, `minor`, or `major`)
+2. Include the generated `.changeset/*.md` file in your PR
+3. CI enforces that every PR includes a changeset (use `npx changeset --empty` for changes that don't need a version bump, like docs or CI)
+4. When PRs are merged to `main`, the release workflow automatically creates a **"chore: version packages"** PR that bumps the version and updates `CHANGELOG.md`
+5. Merging that PR publishes to npm with provenance
+
+**Prerequisite**: An `NPM_TOKEN` secret must be configured in the GitHub repository settings.
 
 ## License
 
