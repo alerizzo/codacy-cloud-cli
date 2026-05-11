@@ -1,5 +1,5 @@
 ---
-"codacy-cloud-cli": minor
+"@codacy/codacy-cloud-cli": minor
 ---
 
 ### Changes since v1.0.5
