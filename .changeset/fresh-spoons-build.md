@@ -11,3 +11,4 @@
 - **Pin GitHub Actions to SHA hashes** (#2): Pinned all GitHub Actions workflow dependencies to commit SHAs for improved supply-chain security.
 
 - **Adopt changesets for automated versioning and publishing** (#6): Replaced the manual publish workflow with a changesets-based release pipeline. PRs now require a changeset file, and merging to main triggers automated version bumps and npm publishing with provenance.
+
