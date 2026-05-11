@@ -12,7 +12,7 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        node-version: [20, 22]
 
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -50,7 +50,7 @@ jobs:
       - name: Check for changesets
         run: |
           # Count .changeset/*.md files added/modified in this PR compared to the base branch
-          CHANGESETS=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- '.changeset/*.md' ':!.changeset/README.md' | wc -l)
+          CHANGESETS=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '.changeset/*.md' ':!.changeset/README.md' | wc -l)
           if [ "$CHANGESETS" -eq 0 ]; then
             echo "::error::No changeset found for this PR. Run 'npx changeset' to describe your changes."
             echo ""
