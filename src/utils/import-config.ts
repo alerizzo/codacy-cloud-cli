@@ -1,4 +1,6 @@
 import * as fs from "fs";
+import { exec } from "child_process";
+import { promisify } from "util";
 import ansis from "ansis";
 import pluralize from "pluralize";
 import { CodacyConfig, CodacyToolConfig } from "../types/codacy-config";
@@ -9,7 +11,10 @@ import { ConfigurePattern } from "../api/client/models/ConfigurePattern";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { CodingStandardsService } from "../api/client/services/CodingStandardsService";
+import { ApiError } from "../api/client/core/ApiError";
 import type ora from "ora";
+
+const execAsync = promisify(exec);
 
 export interface ResolvedTool {
   configTool: CodacyToolConfig;
@@ -22,9 +27,54 @@ export interface ImportPreview {
   toolsToEnable: ResolvedTool[];
   toolsToReconfigure: ResolvedTool[];
   unresolvedTools: string[];
+  cloudOnlyTools: AnalysisTool[];
+  localCliAvailable: boolean;
   totalPatterns: number;
   standards: CodingStandardInfo[];
   configPath: string;
+}
+
+export interface ImportFailure {
+  tool: string;
+  error: string;
+  status?: number;
+  details: string[];
+}
+
+function parseApiErrorBody(body: unknown): string[] {
+  if (body && typeof body === "object") {
+    const details: string[] = [];
+    const obj = body as Record<string, unknown>;
+    if (typeof obj.message === "string") {
+      details.push(obj.message);
+    }
+    if (Array.isArray(obj.errors)) {
+      for (const e of obj.errors) {
+        details.push(typeof e === "string" ? e : ((e as any)?.message ?? JSON.stringify(e)));
+      }
+    }
+    if (details.length === 0) {
+      const serialized = JSON.stringify(body);
+      if (serialized !== "{}" && serialized !== "null") {
+        details.push(serialized);
+      }
+    }
+    return details;
+  }
+  if (typeof body === "string" && body.length > 0) {
+    return [body];
+  }
+  return [];
+}
+
+function extractErrorDetails(err: unknown): Pick<ImportFailure, "error" | "status" | "details"> {
+  if (!(err instanceof ApiError)) {
+    return {
+      error: err instanceof Error ? err.message : String(err),
+      details: [],
+    };
+  }
+  return { error: err.message, status: err.status, details: parseApiErrorBody(err.body) };
 }
 
 export function readConfigFile(filePath: string): CodacyConfig {
@@ -85,12 +135,28 @@ export async function fetchAllTools(): Promise<Tool[]> {
   return all;
 }
 
+export async function getLocalSupportedToolIds(): Promise<string[] | null> {
+  try {
+    const { stdout } = await execAsync("codacy-analysis info -f json", {
+      timeout: 30000,
+    });
+    const info = JSON.parse(stdout);
+    if (!info.tools || !Array.isArray(info.tools)) return null;
+    return info.tools
+      .filter((t: any) => t && t.supported && typeof t.id === "string")
+      .map((t: any) => t.id as string);
+  } catch {
+    return null;
+  }
+}
+
 export function buildImportPreview(
   config: CodacyConfig,
   repoTools: AnalysisTool[],
   allTools: Tool[],
   standards: CodingStandardInfo[],
   configPath: string,
+  localToolIds?: string[] | null,
 ): ImportPreview {
   const resolved: ResolvedTool[] = [];
   const unresolvedTools: string[] = [];
@@ -115,11 +181,30 @@ export function buildImportPreview(
     (r) => r.repoTool && r.repoTool.settings.isEnabled,
   );
 
-  // Repo tools that are currently enabled but NOT in the config → disable
+  // Repo tools that are currently enabled but NOT in the config
   const resolvedUuids = new Set(resolved.map((r) => r.tool.uuid));
-  const toolsToDisable = repoTools.filter(
+  const enabledNotInConfig = repoTools.filter(
     (rt) => rt.settings.isEnabled && !resolvedUuids.has(rt.uuid),
   );
+
+  // Only disable tools the local CLI supports; leave cloud-only tools unchanged
+  const localCliAvailable = localToolIds != null;
+  let toolsToDisable: AnalysisTool[];
+  let cloudOnlyTools: AnalysisTool[];
+
+  if (localToolIds) {
+    const localUuids = new Set(
+      localToolIds
+        .map((id) => resolveToolId(id, allTools))
+        .filter((t): t is Tool => t !== undefined)
+        .map((t) => t.uuid),
+    );
+    toolsToDisable = enabledNotInConfig.filter((rt) => localUuids.has(rt.uuid));
+    cloudOnlyTools = enabledNotInConfig.filter((rt) => !localUuids.has(rt.uuid));
+  } else {
+    toolsToDisable = [];
+    cloudOnlyTools = [];
+  }
 
   const totalPatterns = config.tools.reduce(
     (sum, t) => sum + (Array.isArray(t.patterns) ? t.patterns.length : 0),
@@ -131,6 +216,8 @@ export function buildImportPreview(
     toolsToEnable,
     toolsToReconfigure,
     unresolvedTools,
+    cloudOnlyTools,
+    localCliAvailable,
     totalPatterns,
     standards,
     configPath,
@@ -166,6 +253,16 @@ export function printImportPreview(
     console.log();
   }
 
+  // Local CLI availability warning
+  if (!preview.localCliAvailable) {
+    console.log(
+      ansis.yellow(
+        "⚠ Could not query codacy-analysis CLI. No tools will be disabled — only tools in the config will be enabled/reconfigured.",
+      ),
+    );
+    console.log();
+  }
+
   // Unresolved tools warning
   if (preview.unresolvedTools.length > 0) {
     console.log(
@@ -174,6 +271,16 @@ export function printImportPreview(
       ),
     );
     console.log();
+  }
+
+  // Cloud-only tools (unchanged)
+  if (preview.cloudOnlyTools.length > 0) {
+    const names = preview.cloudOnlyTools.map((t) => t.name).join(", ");
+    console.log(
+      ansis.dim(
+        `${preview.cloudOnlyTools.length} cloud-only ${pluralize("tool", preview.cloudOnlyTools.length)} unchanged: ${names}`,
+      ),
+    );
   }
 
   // Tools to disable
@@ -200,14 +307,32 @@ export function printImportPreview(
     );
   }
 
-  console.log();
-  console.log(
-    `All existing patterns in configured tools will be replaced with the patterns in ${ansis.bold(preview.configPath)}.`,
+  const allResolved = [
+    ...preview.toolsToEnable,
+    ...preview.toolsToReconfigure,
+  ];
+  const configFileTools = allResolved.filter(
+    (r) => r.configTool.useLocalConfigurationFile,
   );
-  console.log();
-  console.log(
-    `${ansis.bold(String(preview.totalPatterns))} ${pluralize("pattern", preview.totalPatterns)} will be enabled.`,
+  const patternTools = allResolved.filter(
+    (r) => !r.configTool.useLocalConfigurationFile,
   );
+
+  console.log();
+  if (patternTools.length > 0) {
+    console.log(
+      `Existing patterns in ${patternTools.length} ${pluralize("tool", patternTools.length)} will be replaced with the patterns in ${ansis.bold(preview.configPath)}.`,
+    );
+    console.log(
+      `${ansis.bold(String(preview.totalPatterns))} ${pluralize("pattern", preview.totalPatterns)} will be enabled.`,
+    );
+  }
+  if (configFileTools.length > 0) {
+    const names = configFileTools.map((r) => r.tool.name).join(", ");
+    console.log(
+      `${configFileTools.length} ${pluralize("tool", configFileTools.length)} will use their local configuration file: ${names}`,
+    );
+  }
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {
@@ -242,9 +367,9 @@ export async function executeImport(
   allTools: Tool[],
   spinner: ReturnType<typeof ora>,
   force: boolean = false,
-): Promise<{ succeeded: string[]; failed: { tool: string; error: string }[] }> {
+): Promise<{ succeeded: string[]; failed: ImportFailure[] }> {
   const succeeded: string[] = [];
-  const failed: { tool: string; error: string }[] = [];
+  const failed: ImportFailure[] = [];
 
   // Unlink coding standards when --force is used
   if (force) {
@@ -260,7 +385,7 @@ export async function executeImport(
       } catch (err) {
         failed.push({
           tool: `Standard: ${standard.name}`,
-          error: err instanceof Error ? err.message : String(err),
+          ...extractErrorDetails(err),
         });
       }
     }
@@ -271,54 +396,58 @@ export async function executeImport(
   for (const resolved of allResolved) {
     spinner.text = `Configuring ${resolved.tool.name}...`;
     try {
-      // Disable all existing patterns first
-      await AnalysisService.updateRepositoryToolPatterns(
-        provider,
-        organization,
-        repository,
-        resolved.tool.uuid,
-        { enabled: false },
-      );
-
-      // Build patterns and batch
-      const patterns = buildConfigurePatterns(resolved.configTool);
-      const batches = chunk(patterns, 1000);
-
-      for (const batch of batches) {
+      if (resolved.configTool.useLocalConfigurationFile) {
+        // Config file mode: just enable the tool with the config file flag, no pattern changes
         await AnalysisService.configureTool(
           provider,
           organization,
           repository,
           resolved.tool.uuid,
-          {
-            enabled: true,
-            useConfigurationFile:
-              resolved.configTool.useLocalConfigurationFile ?? false,
-            patterns: batch,
-          },
+          { enabled: true, useConfigurationFile: true },
         );
-      }
-
-      // If no patterns, still enable the tool with the config file setting
-      if (batches.length === 0) {
-        await AnalysisService.configureTool(
+      } else {
+        // Pattern mode: reset existing patterns, then apply new ones
+        await AnalysisService.updateRepositoryToolPatterns(
           provider,
           organization,
           repository,
           resolved.tool.uuid,
-          {
-            enabled: true,
-            useConfigurationFile:
-              resolved.configTool.useLocalConfigurationFile ?? false,
-          },
+          { enabled: false },
         );
+
+        const patterns = buildConfigurePatterns(resolved.configTool);
+        const batches = chunk(patterns, 1000);
+
+        for (const batch of batches) {
+          await AnalysisService.configureTool(
+            provider,
+            organization,
+            repository,
+            resolved.tool.uuid,
+            {
+              enabled: true,
+              useConfigurationFile: false,
+              patterns: batch,
+            },
+          );
+        }
+
+        if (batches.length === 0) {
+          await AnalysisService.configureTool(
+            provider,
+            organization,
+            repository,
+            resolved.tool.uuid,
+            { enabled: true, useConfigurationFile: false },
+          );
+        }
       }
 
       succeeded.push(resolved.tool.name);
     } catch (err) {
       failed.push({
         tool: resolved.tool.name,
-        error: err instanceof Error ? err.message : String(err),
+        ...extractErrorDetails(err),
       });
     }
   }
@@ -338,7 +467,7 @@ export async function executeImport(
     } catch (err) {
       failed.push({
         tool: tool.name,
-        error: err instanceof Error ? err.message : String(err),
+        ...extractErrorDetails(err),
       });
     }
   }

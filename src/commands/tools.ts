@@ -10,9 +10,11 @@ import { AnalysisTool } from "../api/client/models/AnalysisTool";
 import {
   readConfigFile,
   fetchAllTools,
+  getLocalSupportedToolIds,
   buildImportPreview,
   printImportPreview,
   executeImport,
+  ImportFailure,
 } from "../utils/import-config";
 import { confirmAction } from "../utils/prompt";
 
@@ -47,6 +49,27 @@ function printToolGroup(tools: AnalysisTool[], enabled: boolean): void {
     ]);
   }
   console.log(table.toString());
+}
+
+const MAX_ERROR_DETAILS = 5;
+
+function printImportErrors(failures: ImportFailure[]): void {
+  for (const f of failures) {
+    const status = f.status ? ` (${f.status})` : "";
+    console.log(ansis.red(`✗ ${f.tool}: ${f.error}${status}`));
+
+    if (f.details.length === 0) continue;
+
+    const shown = f.details.slice(0, MAX_ERROR_DETAILS);
+    for (const detail of shown) {
+      console.log(ansis.dim(`  ${detail}`));
+    }
+    const remaining = f.details.length - shown.length;
+    if (remaining > 0) {
+      console.log(ansis.dim(`  ... and ${remaining} more`));
+    }
+  }
+  console.log();
 }
 
 export function registerToolsCommand(program: Command) {
@@ -94,8 +117,8 @@ Examples:
           // Read config file
           const config = readConfigFile(resolvedPath);
 
-          // Fetch current state in parallel
-          const [repoToolsResponse, allTools, repoResponse] =
+          // Fetch current state and local CLI info in parallel
+          const [repoToolsResponse, allTools, repoResponse, localToolIds] =
             await Promise.all([
               AnalysisService.listRepositoryTools(
                 provider,
@@ -108,6 +131,7 @@ Examples:
                 organization,
                 repository,
               ),
+              getLocalSupportedToolIds(),
             ]);
 
           spinner.stop();
@@ -119,6 +143,7 @@ Examples:
             allTools,
             repoResponse.data.repository.standards,
             resolvedPath,
+            localToolIds,
           );
 
           printImportPreview(preview, repository, Boolean(opts.force));
@@ -159,9 +184,7 @@ Examples:
                 `Import completed with ${result.failed.length} error(s):`,
               ),
             );
-            for (const f of result.failed) {
-              console.log(ansis.red(`  ✗ ${f.tool}: ${f.error}`));
-            }
+            printImportErrors(result.failed);
             if (result.succeeded.length > 0) {
               console.log(
                 ansis.green(

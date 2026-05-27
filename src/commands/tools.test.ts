@@ -286,6 +286,7 @@ describe("tools command", () => {
           configurable: true,
         },
       ] as any);
+      vi.spyOn(importConfig, "getLocalSupportedToolIds").mockResolvedValue(["ESLint"]);
       vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
         data: {
           repository: {
