@@ -159,7 +159,7 @@ describe("resolveToolId", () => {
 // ─── buildImportPreview ───────────────────────────────────────────────
 
 describe("buildImportPreview", () => {
-  it("should categorize tools correctly", () => {
+  it("should categorize tools correctly with local CLI info", () => {
     const repoTools: AnalysisTool[] = [
       makeRepoTool("uuid-eslint", "ESLint", true),
       makeRepoTool("uuid-checkov", "Checkov", true),
@@ -181,7 +181,8 @@ describe("buildImportPreview", () => {
       ],
     };
 
-    const preview = buildImportPreview(config, repoTools, allTools, [], "/test/path");
+    const localToolIds = ["ESLint", "Pylint", "checkov", "remarklint"];
+    const preview = buildImportPreview(config, repoTools, allTools, [], "/test/path", localToolIds);
 
     // ESLint is enabled and in config → reconfigure
     expect(preview.toolsToReconfigure).toHaveLength(1);
@@ -191,12 +192,84 @@ describe("buildImportPreview", () => {
     expect(preview.toolsToEnable).toHaveLength(1);
     expect(preview.toolsToEnable[0].tool.name).toBe("Pylint");
 
-    // Checkov is enabled but NOT in config → disable
+    // Checkov is enabled, locally supported, but NOT in config → disable
     expect(preview.toolsToDisable).toHaveLength(1);
     expect(preview.toolsToDisable[0].name).toBe("Checkov");
 
+    expect(preview.cloudOnlyTools).toHaveLength(0);
+    expect(preview.localCliAvailable).toBe(true);
     expect(preview.totalPatterns).toBe(3);
     expect(preview.unresolvedTools).toHaveLength(0);
+  });
+
+  it("should leave cloud-only tools unchanged", () => {
+    const sonarSharpTool = makeTool({ uuid: "uuid-sonarsharp", name: "SonarSharp", shortName: "sonarsharp", prefix: "SonarSharp_" });
+    const extendedAllTools = [...allTools, sonarSharpTool];
+
+    const repoTools: AnalysisTool[] = [
+      makeRepoTool("uuid-eslint", "ESLint", true),
+      makeRepoTool("uuid-checkov", "Checkov", true),
+      makeRepoTool("uuid-sonarsharp", "SonarSharp", true),
+    ];
+
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: {
+        repositoryId: null,
+        repositoryName: null,
+        createdAt: "2025-01-01",
+        updatedAt: "2025-01-01",
+        languages: [],
+      },
+      tools: [
+        { toolId: "ESLint", patterns: [{ patternId: "p1" }] },
+      ],
+    };
+
+    // Local CLI supports ESLint and Checkov but NOT SonarSharp
+    const localToolIds = ["ESLint", "checkov"];
+    const preview = buildImportPreview(config, repoTools, extendedAllTools, [], "/test/path", localToolIds);
+
+    // ESLint is in config → reconfigure
+    expect(preview.toolsToReconfigure).toHaveLength(1);
+    expect(preview.toolsToReconfigure[0].tool.name).toBe("ESLint");
+
+    // Checkov is locally supported but not in config → disable
+    expect(preview.toolsToDisable).toHaveLength(1);
+    expect(preview.toolsToDisable[0].name).toBe("Checkov");
+
+    // SonarSharp is NOT locally supported → cloud-only, unchanged
+    expect(preview.cloudOnlyTools).toHaveLength(1);
+    expect(preview.cloudOnlyTools[0].name).toBe("SonarSharp");
+  });
+
+  it("should not disable any tools when local CLI is unavailable", () => {
+    const repoTools: AnalysisTool[] = [
+      makeRepoTool("uuid-eslint", "ESLint", true),
+      makeRepoTool("uuid-checkov", "Checkov", true),
+    ];
+
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: {
+        repositoryId: null,
+        repositoryName: null,
+        createdAt: "2025-01-01",
+        updatedAt: "2025-01-01",
+        languages: [],
+      },
+      tools: [
+        { toolId: "ESLint", patterns: [{ patternId: "p1" }] },
+      ],
+    };
+
+    // null = local CLI not available
+    const preview = buildImportPreview(config, repoTools, allTools, [], "/test/path", null);
+
+    expect(preview.toolsToDisable).toHaveLength(0);
+    expect(preview.cloudOnlyTools).toHaveLength(0);
+    expect(preview.localCliAvailable).toBe(false);
+    expect(preview.toolsToReconfigure).toHaveLength(1);
   });
 
   it("should report unresolved tools", () => {
@@ -252,7 +325,7 @@ describe("executeImport", () => {
     vi.clearAllMocks();
   });
 
-  it("should configure tools from config and disable tools not in config", async () => {
+  it("should configure tools from config and disable locally supported tools not in config", async () => {
     vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(undefined as any);
     vi.mocked(AnalysisService.configureTool).mockResolvedValue(undefined as any);
 
@@ -285,6 +358,7 @@ describe("executeImport", () => {
       allTools,
       [],
       "/test/path",
+      ["ESLint", "checkov"],
     );
 
     const result = await executeImport(
@@ -330,7 +404,7 @@ describe("executeImport", () => {
     expect(result.failed).toHaveLength(0);
   });
 
-  it("should pass useConfigurationFile when specified", async () => {
+  it("should skip pattern reset and use config file mode when useLocalConfigurationFile is true", async () => {
     vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(undefined as any);
     vi.mocked(AnalysisService.configureTool).mockResolvedValue(undefined as any);
 
@@ -360,7 +434,10 @@ describe("executeImport", () => {
       mockSpinner as any,
     );
 
-    // When no patterns, should still enable with useConfigurationFile
+    // Should NOT reset patterns when using config file mode
+    expect(AnalysisService.updateRepositoryToolPatterns).not.toHaveBeenCalled();
+
+    // Should enable with useConfigurationFile: true
     expect(AnalysisService.configureTool).toHaveBeenCalledWith(
       "gh", "test-org", "test-repo", "uuid-eslint",
       { enabled: true, useConfigurationFile: true },
@@ -464,6 +541,80 @@ describe("executeImport", () => {
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0].tool).toBe("ESLint");
     expect(result.failed[0].error).toContain("Conflict");
+    expect(result.failed[0].details).toEqual([]);
     expect(result.succeeded).toContain("Pylint");
+  });
+
+  it("should extract details from ApiError with body.message", async () => {
+    const { ApiError } = await import("../api/client/core/ApiError");
+    const apiError = new ApiError(
+      { method: "PUT", url: "/test" } as any,
+      { url: "/test", ok: false, status: 409, statusText: "Conflict", body: { message: "Tool is managed by coding standard 'Security'" } },
+      "Conflict",
+    );
+
+    vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(undefined as any);
+    vi.mocked(AnalysisService.configureTool).mockRejectedValueOnce(apiError);
+
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: { repositoryId: null, repositoryName: null, createdAt: "", updatedAt: "", languages: [] },
+      tools: [{ toolId: "ESLint", patterns: [{ patternId: "p1" }] }],
+    };
+
+    const preview = buildImportPreview(config, [], allTools, [], "/test/path");
+    const result = await executeImport("gh", "org", "repo", preview, config, allTools, mockSpinner as any);
+
+    expect(result.failed[0].status).toBe(409);
+    expect(result.failed[0].error).toBe("Conflict");
+    expect(result.failed[0].details).toEqual(["Tool is managed by coding standard 'Security'"]);
+  });
+
+  it("should extract details from ApiError with body.errors array", async () => {
+    const { ApiError } = await import("../api/client/core/ApiError");
+    const apiError = new ApiError(
+      { method: "PUT", url: "/test" } as any,
+      { url: "/test", ok: false, status: 400, statusText: "Bad Request", body: { errors: ["Pattern X not found", "Pattern Y is invalid"] } },
+      "Bad Request",
+    );
+
+    vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(undefined as any);
+    vi.mocked(AnalysisService.configureTool).mockRejectedValueOnce(apiError);
+
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: { repositoryId: null, repositoryName: null, createdAt: "", updatedAt: "", languages: [] },
+      tools: [{ toolId: "ESLint", patterns: [{ patternId: "p1" }] }],
+    };
+
+    const preview = buildImportPreview(config, [], allTools, [], "/test/path");
+    const result = await executeImport("gh", "org", "repo", preview, config, allTools, mockSpinner as any);
+
+    expect(result.failed[0].status).toBe(400);
+    expect(result.failed[0].details).toEqual(["Pattern X not found", "Pattern Y is invalid"]);
+  });
+
+  it("should extract details from ApiError with string body", async () => {
+    const { ApiError } = await import("../api/client/core/ApiError");
+    const apiError = new ApiError(
+      { method: "PUT", url: "/test" } as any,
+      { url: "/test", ok: false, status: 500, statusText: "Internal Server Error", body: "Unexpected failure in tool configuration" },
+      "Internal Server Error",
+    );
+
+    vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(undefined as any);
+    vi.mocked(AnalysisService.configureTool).mockRejectedValueOnce(apiError);
+
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: { repositoryId: null, repositoryName: null, createdAt: "", updatedAt: "", languages: [] },
+      tools: [{ toolId: "ESLint", patterns: [{ patternId: "p1" }] }],
+    };
+
+    const preview = buildImportPreview(config, [], allTools, [], "/test/path");
+    const result = await executeImport("gh", "org", "repo", preview, config, allTools, mockSpinner as any);
+
+    expect(result.failed[0].status).toBe(500);
+    expect(result.failed[0].details).toEqual(["Unexpected failure in tool configuration"]);
   });
 });
