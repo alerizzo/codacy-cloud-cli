@@ -41,24 +41,16 @@ export interface ImportFailure {
   details: string[];
 }
 
-function extractErrorDetails(err: unknown): Pick<ImportFailure, "error" | "status" | "details"> {
-  if (!(err instanceof ApiError)) {
-    return {
-      error: err instanceof Error ? err.message : String(err),
-      details: [],
-    };
-  }
-
-  const details: string[] = [];
-  const body = err.body;
-
+function parseApiErrorBody(body: unknown): string[] {
   if (body && typeof body === "object") {
-    if (typeof body.message === "string") {
-      details.push(body.message);
+    const details: string[] = [];
+    const obj = body as Record<string, unknown>;
+    if (typeof obj.message === "string") {
+      details.push(obj.message);
     }
-    if (Array.isArray(body.errors)) {
-      for (const e of body.errors) {
-        details.push(typeof e === "string" ? e : (e?.message ?? JSON.stringify(e)));
+    if (Array.isArray(obj.errors)) {
+      for (const e of obj.errors) {
+        details.push(typeof e === "string" ? e : ((e as any)?.message ?? JSON.stringify(e)));
       }
     }
     if (details.length === 0) {
@@ -67,11 +59,22 @@ function extractErrorDetails(err: unknown): Pick<ImportFailure, "error" | "statu
         details.push(serialized);
       }
     }
-  } else if (typeof body === "string" && body.length > 0) {
-    details.push(body);
+    return details;
   }
+  if (typeof body === "string" && body.length > 0) {
+    return [body];
+  }
+  return [];
+}
 
-  return { error: err.message, status: err.status, details };
+function extractErrorDetails(err: unknown): Pick<ImportFailure, "error" | "status" | "details"> {
+  if (!(err instanceof ApiError)) {
+    return {
+      error: err instanceof Error ? err.message : String(err),
+      details: [],
+    };
+  }
+  return { error: err.message, status: err.status, details: parseApiErrorBody(err.body) };
 }
 
 export function readConfigFile(filePath: string): CodacyConfig {
@@ -140,7 +143,7 @@ export async function getLocalSupportedToolIds(): Promise<string[] | null> {
     const info = JSON.parse(stdout);
     if (!info.tools || !Array.isArray(info.tools)) return null;
     return info.tools
-      .filter((t: any) => t.supported)
+      .filter((t: any) => t && t.supported && typeof t.id === "string")
       .map((t: any) => t.id as string);
   } catch {
     return null;
@@ -304,14 +307,32 @@ export function printImportPreview(
     );
   }
 
-  console.log();
-  console.log(
-    `All existing patterns in configured tools will be replaced with the patterns in ${ansis.bold(preview.configPath)}.`,
+  const allResolved = [
+    ...preview.toolsToEnable,
+    ...preview.toolsToReconfigure,
+  ];
+  const configFileTools = allResolved.filter(
+    (r) => r.configTool.useLocalConfigurationFile,
   );
-  console.log();
-  console.log(
-    `${ansis.bold(String(preview.totalPatterns))} ${pluralize("pattern", preview.totalPatterns)} will be enabled.`,
+  const patternTools = allResolved.filter(
+    (r) => !r.configTool.useLocalConfigurationFile,
   );
+
+  console.log();
+  if (patternTools.length > 0) {
+    console.log(
+      `Existing patterns in ${patternTools.length} ${pluralize("tool", patternTools.length)} will be replaced with the patterns in ${ansis.bold(preview.configPath)}.`,
+    );
+    console.log(
+      `${ansis.bold(String(preview.totalPatterns))} ${pluralize("pattern", preview.totalPatterns)} will be enabled.`,
+    );
+  }
+  if (configFileTools.length > 0) {
+    const names = configFileTools.map((r) => r.tool.name).join(", ");
+    console.log(
+      `${configFileTools.length} ${pluralize("tool", configFileTools.length)} will use their local configuration file: ${names}`,
+    );
+  }
 }
 
 function chunk<T>(arr: T[], size: number): T[][] {

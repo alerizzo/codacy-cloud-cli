@@ -179,17 +179,12 @@ Examples:
               `${ansis.green("✓")} Configuration imported successfully.`,
             );
           } else {
-            printImportErrors(result.failed);
-
             console.log(
               ansis.yellow(
                 `Import completed with ${result.failed.length} error(s):`,
               ),
             );
-            for (const f of result.failed) {
-              const status = f.status ? ` (${f.status})` : "";
-              console.log(ansis.red(`  ✗ ${f.tool}: ${f.error}${status}`));
-            }
+            printImportErrors(result.failed);
             if (result.succeeded.length > 0) {
               console.log(
                 ansis.green(
