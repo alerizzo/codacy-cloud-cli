@@ -1,5 +1,11 @@
 # @codacy/codacy-cloud-cli
 
+## 1.1.1
+
+### Patch Changes
+
+- [#9](https://github.com/codacy/codacy-cloud-cli/pull/9) [`a973363`](https://github.com/codacy/codacy-cloud-cli/commit/a973363794b803e13124ab592778e6eced2be88d) Thanks [@alerizzo](https://github.com/alerizzo)! - Fix tools import to preserve cloud-only tools (only disable tools the local CLI supports), handle config-file mode correctly (skip pattern reset when useLocalConfigurationFile is set), and surface structured API error details on import failures.
+
 ## 1.1.0
 
 ### Minor Changes
