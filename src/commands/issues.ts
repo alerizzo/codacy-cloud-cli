@@ -3,6 +3,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
+import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import {
   createTable,
   getOutputFormat,
@@ -131,6 +132,7 @@ function printOverview(counts: {
   tags: Count[];
   patterns: PatternsCount[];
   authors: Count[];
+  potentialFalsePositives: Count[];
 }): void {
   printSection("Issues Overview");
   const hasData =
@@ -139,7 +141,8 @@ function printOverview(counts: {
     counts.languages.length > 0 ||
     counts.tags.length > 0 ||
     counts.patterns.length > 0 ||
-    counts.authors.length > 0;
+    counts.authors.length > 0 ||
+    counts.potentialFalsePositives.length > 0;
 
   if (!hasData) {
     console.log(ansis.dim("  No issues data available."));
@@ -157,6 +160,9 @@ function printOverview(counts: {
   printPatternsTable(counts.patterns);
   if (counts.patterns.length > 0 && counts.authors.length > 0) console.log();
   printCountTable("Author", counts.authors);
+  if (counts.authors.length > 0 && counts.potentialFalsePositives.length > 0)
+    console.log();
+  printCountTable("False Positives", counts.potentialFalsePositives);
 }
 
 /**
@@ -284,9 +290,9 @@ export function registerIssuesCommand(program: Command) {
     .command("issues")
     .alias("is")
     .description("Search for issues in a repository")
-    .argument("<provider>", "git provider (gh, gl, or bb)")
-    .argument("<organization>", "organization name")
-    .argument("<repository>", "repository name")
+    .argument("[provider]", "git provider (gh, gl, or bb) — auto-detected from git remote if omitted")
+    .argument("[organization]", "organization name")
+    .argument("[repository]", "repository name")
     .option(
       "-b, --branch <branch>",
       "branch name (defaults to the main branch)",
@@ -338,6 +344,7 @@ export function registerIssuesCommand(program: Command) {
       "after",
       `
 Examples:
+  $ codacy issues                                    # auto-detect from git remote
   $ codacy issues gh my-org my-repo
   $ codacy issues gh my-org my-repo --branch main --severities Critical,Medium
   $ codacy issues gh my-org my-repo --categories Security --overview
@@ -352,12 +359,18 @@ Examples:
     )
     .action(async function (
       this: Command,
-      provider: string,
-      organization: string,
-      repository: string,
+      providerArg?: string,
+      organizationArg?: string,
+      repositoryArg?: string,
     ) {
       try {
         checkApiToken();
+        const { provider, organization, repository } = resolveRepoArgs(
+          [providerArg, organizationArg, repositoryArg],
+          0,
+          "issues",
+          [],
+        );
         const opts = this.opts();
         const format = getOutputFormat(this);
         const isOverview = !!opts.overview;
@@ -414,6 +427,7 @@ Examples:
                 "overview.tags",
                 "overview.patterns",
                 "overview.authors",
+                "overview.potentialFalsePositives",
               ]),
             );
             return;
@@ -426,6 +440,7 @@ Examples:
             tags: counts.tags,
             patterns: counts.patterns,
             authors: counts.authors,
+            potentialFalsePositives: counts.potentialFalsePositives,
           });
         } else {
           const pageSize = Math.min(limit, 100);

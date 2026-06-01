@@ -3,6 +3,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
+import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { findToolByName } from "../utils/formatting";
 import { ConfigureToolBody } from "../api/client/models/ConfigureToolBody";
@@ -12,11 +13,11 @@ export function registerToolCommand(program: Command) {
     .command("tool")
     .alias("tl")
     .description("Enable, disable, or configure a tool for a repository")
-    .argument("<provider>", "git provider (gh, gl, or bb)")
-    .argument("<organization>", "organization name")
-    .argument("<repository>", "repository name")
+    .argument("[provider]", "git provider (gh, gl, or bb) — auto-detected from git remote if omitted")
+    .argument("[organization]", "organization name")
+    .argument("[repository]", "repository name")
     .argument(
-      "<toolName>",
+      "[toolName]",
       "tool name (use hyphens for spaces, e.g. eslint-(deprecated))",
     )
     .option("-e, --enable", "enable the tool")
@@ -29,6 +30,7 @@ export function registerToolCommand(program: Command) {
       "after",
       `
 Examples:
+  $ codacy-cloud-cli tool eslint --enable                     # auto-detect from git remote
   $ codacy-cloud-cli tool gh my-org my-repo eslint --enable
   $ codacy-cloud-cli tool gh my-org my-repo eslint --disable
   $ codacy-cloud-cli tool gh my-org my-repo eslint --configuration-file true
@@ -36,13 +38,21 @@ Examples:
     )
     .action(async function (
       this: Command,
-      provider: string,
-      organization: string,
-      repository: string,
-      toolName: string,
+      providerArg?: string,
+      organizationArg?: string,
+      repositoryArg?: string,
+      toolNameArg?: string,
     ) {
       try {
         checkApiToken();
+        const { provider, organization, repository, trailingArgs } =
+          resolveRepoArgs(
+            [providerArg, organizationArg, repositoryArg, toolNameArg],
+            1,
+            "tool",
+            ["toolName"],
+          );
+        const toolName = trailingArgs[0];
         const opts = this.opts();
 
         if (

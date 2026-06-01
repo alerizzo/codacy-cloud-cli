@@ -3,6 +3,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
+import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { findToolByName } from "../utils/formatting";
 import { ConfigureToolBody } from "../api/client/models/ConfigureToolBody";
@@ -13,14 +14,14 @@ export function registerPatternCommand(program: Command) {
     .command("pattern")
     .alias("pat")
     .description("Enable, disable, or set parameters for a specific pattern")
-    .argument("<provider>", "git provider (gh, gl, or bb)")
-    .argument("<organization>", "organization name")
-    .argument("<repository>", "repository name")
+    .argument("[provider]", "git provider (gh, gl, or bb) — auto-detected from git remote if omitted")
+    .argument("[organization]", "organization name")
+    .argument("[repository]", "repository name")
     .argument(
-      "<toolName>",
+      "[toolName]",
       "tool name (use hyphens for spaces, e.g. eslint-(deprecated))",
     )
-    .argument("<patternId>", "pattern ID")
+    .argument("[patternId]", "pattern ID")
     .option("-e, --enable", "enable the pattern")
     .option("-d, --disable", "disable the pattern")
     .option(
@@ -33,6 +34,7 @@ export function registerPatternCommand(program: Command) {
       "after",
       `
 Examples:
+  $ codacy-cloud-cli pattern eslint some-pattern-id --enable   # auto-detect from git remote
   $ codacy-cloud-cli pattern gh my-org my-repo eslint some-pattern-id --enable
   $ codacy-cloud-cli pattern gh my-org my-repo eslint some-pattern-id --disable
   $ codacy-cloud-cli pattern gh my-org my-repo eslint some-pattern-id --parameter maxParams=3
@@ -40,14 +42,22 @@ Examples:
     )
     .action(async function (
       this: Command,
-      provider: string,
-      organization: string,
-      repository: string,
-      toolName: string,
-      patternId: string,
+      providerArg?: string,
+      organizationArg?: string,
+      repositoryArg?: string,
+      toolNameArg?: string,
+      patternIdArg?: string,
     ) {
       try {
         checkApiToken();
+        const { provider, organization, repository, trailingArgs } =
+          resolveRepoArgs(
+            [providerArg, organizationArg, repositoryArg, toolNameArg, patternIdArg],
+            2,
+            "pattern",
+            ["toolName", "patternId"],
+          );
+        const [toolName, patternId] = trailingArgs;
         const opts = this.opts();
 
         if (!opts.enable && !opts.disable && opts.parameter.length === 0) {

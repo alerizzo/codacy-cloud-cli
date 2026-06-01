@@ -4,6 +4,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
+import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import { createTable, getOutputFormat, pickDeep, printJson } from "../utils/output";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { AnalysisTool } from "../api/client/models/AnalysisTool";
@@ -77,9 +78,9 @@ export function registerToolsCommand(program: Command) {
     .command("tools")
     .alias("tls")
     .description("List all tools for a repository and their status")
-    .argument("<provider>", "git provider (gh, gl, or bb)")
-    .argument("<organization>", "organization name")
-    .argument("<repository>", "repository name")
+    .argument("[provider]", "git provider (gh, gl, or bb) — auto-detected from git remote if omitted")
+    .argument("[organization]", "organization name")
+    .argument("[repository]", "repository name")
     .option("--import [path]", "import tool configuration from a file (default: .codacy/codacy.config.json)")
     .option("-y, --skip-approval", "skip confirmation prompt during import")
     .option("--force", "unlink all coding standards before importing")
@@ -87,6 +88,7 @@ export function registerToolsCommand(program: Command) {
       "after",
       `
 Examples:
+  $ codacy-cloud-cli tools                                   # auto-detect from git remote
   $ codacy-cloud-cli tools gh my-org my-repo
   $ codacy-cloud-cli tools gh my-org my-repo --output json
   $ codacy-cloud-cli tools gh my-org my-repo --import
@@ -96,12 +98,18 @@ Examples:
     )
     .action(async function (
       this: Command,
-      provider: string,
-      organization: string,
-      repository: string,
+      providerArg?: string,
+      organizationArg?: string,
+      repositoryArg?: string,
     ) {
       try {
         checkApiToken();
+        const { provider, organization, repository } = resolveRepoArgs(
+          [providerArg, organizationArg, repositoryArg],
+          0,
+          "tools",
+          [],
+        );
         const opts = this.opts();
 
         // ── Mode: import ────────────────────────────────────────────────

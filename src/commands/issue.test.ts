@@ -10,6 +10,13 @@ vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/ToolsService");
 vi.mock("../api/client/services/FileService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
+vi.mock("../utils/git-remote", () => ({
+  detectRepoContext: vi.fn(() => ({
+    provider: "gh",
+    organization: "auto-org",
+    repository: "auto-repo",
+  })),
+}));
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -424,6 +431,20 @@ describe("issue command", () => {
       ]);
 
       expect(AnalysisService.updateIssueState).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("auto-detect from git remote", () => {
+    it("should auto-detect provider/org/repo when only issueId is provided", async () => {
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "issue", "42"]);
+
+      expect(AnalysisService.getIssue).toHaveBeenCalledWith(
+        "gh",
+        "auto-org",
+        "auto-repo",
+        42,
+      );
     });
   });
 });

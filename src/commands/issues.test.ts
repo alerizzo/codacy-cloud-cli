@@ -7,6 +7,13 @@ import { ToolsService } from "../api/client/services/ToolsService";
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/ToolsService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
+vi.mock("../utils/git-remote", () => ({
+  detectRepoContext: vi.fn(() => ({
+    provider: "gh",
+    organization: "auto-org",
+    repository: "auto-repo",
+  })),
+}));
 vi.spyOn(console, "log").mockImplementation(() => {});
 
 function createProgram(): Command {
@@ -76,6 +83,10 @@ const mockOverview = {
         { id: "no-undef", title: "No Undefined Variables", total: 3 },
       ],
       authors: [{ name: "dev@example.com", total: 4 }],
+      potentialFalsePositives: [
+        { name: "equalOrAboveThreshold", total: 2 },
+        { name: "belowThreshold", total: 6 },
+      ],
     },
   },
 };
@@ -182,6 +193,9 @@ describe("issues command", () => {
     expect(output).toContain("sql-injection");
     expect(output).toContain("Author");
     expect(output).toContain("dev@example.com");
+    expect(output).toContain("False Positives");
+    expect(output).toContain("equalOrAboveThreshold");
+    expect(output).toContain("belowThreshold");
   });
 
   it("should pass filter options to the API body", async () => {
@@ -1125,6 +1139,51 @@ describe("issues command", () => {
           reason: "AcceptedUse",
           comment: undefined,
         },
+      );
+    });
+  });
+
+  describe("auto-detect from git remote", () => {
+    it("should auto-detect repo when no positional args are provided", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: mockIssues,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "issues"]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gh",
+        "auto-org",
+        "auto-repo",
+        undefined,
+        100,
+        {},
+      );
+    });
+
+    it("should still work with explicit args", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "issues",
+        "gl",
+        "explicit-org",
+        "explicit-repo",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalledWith(
+        "gl",
+        "explicit-org",
+        "explicit-repo",
+        undefined,
+        100,
+        {},
       );
     });
   });

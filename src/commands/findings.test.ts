@@ -5,7 +5,15 @@ import { SecurityService } from "../api/client/services/SecurityService";
 
 vi.mock("../api/client/services/SecurityService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
+vi.mock("../utils/git-remote", () => ({
+  detectRepoContext: vi.fn(() => ({
+    provider: "gh",
+    organization: "auto-org",
+    repository: "auto-repo",
+  })),
+}));
 vi.spyOn(console, "log").mockImplementation(() => {});
+vi.spyOn(console, "error").mockImplementation(() => {});
 
 function createProgram(): Command {
   const program = new Command();
@@ -632,5 +640,48 @@ describe("findings command", () => {
     ).rejects.toThrow("process.exit called");
 
     mockExit.mockRestore();
+  });
+
+  describe("auto-detect from git remote", () => {
+    it("should auto-detect provider/org/repo when no positional args are provided", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: mockFindings,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "findings"]);
+
+      expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+        "gh",
+        "auto-org",
+        undefined,
+        100,
+        "Status",
+        "asc",
+        {
+          repositories: ["auto-repo"],
+          statuses: ["Overdue", "OnTrack", "DueSoon"],
+        },
+      );
+    });
+
+    it("should use explicit provider/org for org-wide view (no repo filter)", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "findings", "gh", "my-org"]);
+
+      expect(SecurityService.searchSecurityItems).toHaveBeenCalledWith(
+        "gh",
+        "my-org",
+        undefined,
+        100,
+        "Status",
+        "asc",
+        { statuses: ["Overdue", "OnTrack", "DueSoon"] },
+      );
+    });
   });
 });

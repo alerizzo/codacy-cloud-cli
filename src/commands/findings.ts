@@ -3,6 +3,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
+import { detectRepoContext } from "../utils/git-remote";
 import {
   getOutputFormat,
   pickDeep,
@@ -153,8 +154,8 @@ export function registerFindingsCommand(program: Command) {
     .command("findings")
     .alias("find")
     .description("Show security findings for a repository or an organization")
-    .argument("<provider>", "git provider (gh, gl, or bb)")
-    .argument("<organization>", "organization name")
+    .argument("[provider]", "git provider (gh, gl, or bb) — auto-detected from git remote if omitted")
+    .argument("[organization]", "organization name")
     .argument(
       "[repository]",
       "repository name (omit to show organization-wide findings)",
@@ -182,8 +183,9 @@ export function registerFindingsCommand(program: Command) {
       "after",
       `
 Examples:
+  $ codacy findings                                   # auto-detect from git remote
   $ codacy findings gh my-org my-repo
-  $ codacy findings gh my-org
+  $ codacy findings gh my-org                          # organization-wide findings
   $ codacy findings gh my-org --severities Critical,High
   $ codacy findings gh my-org my-repo --statuses Overdue,DueSoon
   $ codacy findings gh my-org my-repo --limit 500
@@ -191,12 +193,48 @@ Examples:
     )
     .action(async function (
       this: Command,
-      provider: string,
-      organization: string,
-      repository: string | undefined,
+      providerArg?: string,
+      organizationArg?: string,
+      repositoryArg?: string,
     ) {
       try {
         checkApiToken();
+
+        const argCount = [providerArg, organizationArg, repositoryArg].filter(
+          (v) => v !== undefined,
+        ).length;
+        let provider: string;
+        let organization: string;
+        let repository: string | undefined;
+
+        if (argCount === 3) {
+          provider = providerArg!;
+          organization = organizationArg!;
+          repository = repositoryArg;
+        } else if (argCount === 2) {
+          provider = providerArg!;
+          organization = organizationArg!;
+          repository = undefined;
+        } else if (argCount === 0) {
+          const ctx = detectRepoContext();
+          console.error(
+            ansis.dim(
+              `  Using ${ctx.provider} / ${ctx.organization} / ${ctx.repository} (from git remote)`,
+            ),
+          );
+          provider = ctx.provider;
+          organization = ctx.organization;
+          repository = ctx.repository;
+        } else {
+          throw new Error(
+            "Ambiguous arguments for 'findings'. Expected 0, 2, or 3 positional arguments.\n\n" +
+              "Usage:\n" +
+              "  codacy findings                          (auto-detect from git remote)\n" +
+              "  codacy findings <provider> <organization>                (organization-wide)\n" +
+              "  codacy findings <provider> <organization> <repository>  (repo-specific)",
+          );
+        }
+
         const opts = this.opts();
         const format = getOutputFormat(this);
 

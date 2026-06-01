@@ -3,6 +3,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
+import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import {
   createTable,
   formatFriendlyDate,
@@ -657,10 +658,10 @@ export function registerPullRequestCommand(program: Command) {
     .command("pull-request")
     .alias("pr")
     .description("Show details and analysis for a specific pull request")
-    .argument("<provider>", "git provider (gh, gl, or bb)")
-    .argument("<organization>", "organization name")
-    .argument("<repository>", "repository name")
-    .argument("<prNumber>", "pull request number")
+    .argument("[provider]", "git provider (gh, gl, or bb) — auto-detected from git remote if omitted")
+    .argument("[organization]", "organization name")
+    .argument("[repository]", "repository name")
+    .argument("[prNumber]", "pull request number")
     .option(
       "-i, --issue <issueId>",
       "show full details for a specific issue in this PR (use the #id shown on issue cards)",
@@ -695,6 +696,7 @@ export function registerPullRequestCommand(program: Command) {
       "after",
       `
 Examples:
+  $ codacy-cloud-cli pull-request 42                          # auto-detect from git remote
   $ codacy-cloud-cli pull-request gh my-org my-repo 42
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --output json
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --issue 9901
@@ -707,13 +709,21 @@ Examples:
     )
     .action(async function (
       this: Command,
-      provider: string,
-      organization: string,
-      repository: string,
-      prNumberStr: string,
+      providerArg?: string,
+      organizationArg?: string,
+      repositoryArg?: string,
+      prNumberArg?: string,
     ) {
       try {
         checkApiToken();
+        const { provider, organization, repository, trailingArgs } =
+          resolveRepoArgs(
+            [providerArg, organizationArg, repositoryArg, prNumberArg],
+            1,
+            "pull-request",
+            ["prNumber"],
+          );
+        const prNumberStr = trailingArgs[0];
         const prNumber = parseInt(prNumberStr, 10);
         if (isNaN(prNumber)) {
           console.error(ansis.red("Error: prNumber must be a number."));

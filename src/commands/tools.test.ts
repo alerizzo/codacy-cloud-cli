@@ -12,6 +12,13 @@ vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/CodingStandardsService");
 vi.mock("../api/client/services/ToolsService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
+vi.mock("../utils/git-remote", () => ({
+  detectRepoContext: vi.fn(() => ({
+    provider: "gh",
+    organization: "auto-org",
+    repository: "auto-repo",
+  })),
+}));
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -409,6 +416,19 @@ describe("tools command", () => {
 
       const output = getAllOutput();
       expect(output).toContain("error");
+    });
+  });
+
+  describe("auto-detect from git remote", () => {
+    it("should auto-detect provider/org/repo when no positional args are provided", async () => {
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "tools"]);
+
+      expect(AnalysisService.listRepositoryTools).toHaveBeenCalledWith(
+        "gh",
+        "auto-org",
+        "auto-repo",
+      );
     });
   });
 });
