@@ -1,4 +1,4 @@
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 
 export interface RepoContext {
   provider: string;
@@ -12,14 +12,20 @@ const HOST_TO_PROVIDER: Record<string, string> = {
   "bitbucket.org": "bb",
 };
 
-const SSH_REGEX = /^git@([^:]+):([^/]+)\/([^/.]+?)(?:\.git)?$/;
-const HTTPS_REGEX = /^https?:\/\/([^/]+)\/([^/]+)\/([^/.]+?)(?:\.git)?$/;
+const SSH_REGEX = /^git@([^:]+):([^/]+)\/([^/]+?)(?:\.git)?$/;
+const HTTPS_REGEX = /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+?)(?:\.git)?$/;
+
+function stripUserinfo(host: string): string {
+  const atIndex = host.indexOf("@");
+  return atIndex >= 0 ? host.slice(atIndex + 1) : host;
+}
 
 export function parseGitRemoteUrl(url: string): RepoContext | null {
   const match = url.match(SSH_REGEX) || url.match(HTTPS_REGEX);
   if (!match) return null;
 
-  const [, host, org, repo] = match;
+  const [, rawHost, org, repo] = match;
+  const host = stripUserinfo(rawHost);
   const provider = HOST_TO_PROVIDER[host];
   if (!provider) return null;
 
@@ -28,7 +34,7 @@ export function parseGitRemoteUrl(url: string): RepoContext | null {
 
 export function getGitRemoteUrl(remoteName = "origin"): string | null {
   try {
-    return execSync(`git remote get-url ${remoteName}`, {
+    return execFileSync("git", ["remote", "get-url", remoteName], {
       encoding: "utf-8",
       timeout: 5000,
       stdio: ["pipe", "pipe", "pipe"],
@@ -36,6 +42,10 @@ export function getGitRemoteUrl(remoteName = "origin"): string | null {
   } catch {
     return null;
   }
+}
+
+function redactUrl(url: string): string {
+  return url.replace(/\/\/[^@]+@/, "//***@");
 }
 
 export function detectRepoContext(): RepoContext {
@@ -54,7 +64,7 @@ export function detectRepoContext(): RepoContext {
       .map(([host, code]) => `${host} (${code})`)
       .join(", ");
     throw new Error(
-      `Could not determine provider from git remote URL '${url}'. ` +
+      `Could not determine provider from git remote URL '${redactUrl(url)}'. ` +
         `Supported providers: ${supported}.`,
     );
   }

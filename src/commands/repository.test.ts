@@ -143,6 +143,7 @@ const mockIssuesCounts = {
   tags: [],
   patterns: [],
   authors: [],
+  potentialFalsePositives: [],
 };
 
 describe("repository command", () => {
@@ -266,6 +267,7 @@ describe("repository command", () => {
           tags: [],
           patterns: [],
           authors: [],
+          potentialFalsePositives: [],
         },
       },
     });
@@ -318,6 +320,7 @@ describe("repository command", () => {
           tags: [],
           patterns: [],
           authors: [],
+          potentialFalsePositives: [],
         },
       },
     });
@@ -411,6 +414,7 @@ describe("repository command", () => {
       tags: [],
       patterns: [],
       authors: [],
+      potentialFalsePositives: [],
     };
 
     vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
@@ -640,7 +644,7 @@ describe("repository command", () => {
       data: [] as any,
     });
     vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
-      data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [] } },
+      data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [], potentialFalsePositives: [] } },
     });
     // Head commit with finished analysis
     vi.mocked(AnalysisService.listRepositoryCommits).mockResolvedValue({
@@ -691,7 +695,7 @@ describe("repository command", () => {
       data: [] as any,
     });
     vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
-      data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [] } },
+      data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [], potentialFalsePositives: [] } },
     });
 
     const program = createProgram();
@@ -756,7 +760,7 @@ describe("repository command", () => {
       data: [] as any,
     });
     vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
-      data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [] } },
+      data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [], potentialFalsePositives: [] } },
     });
 
     const program = createProgram();
@@ -784,7 +788,7 @@ describe("repository command", () => {
         data: [] as any,
       });
       vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
-        data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [] } },
+        data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [], potentialFalsePositives: [] } },
       });
 
       const program = createProgram();

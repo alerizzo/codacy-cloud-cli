@@ -77,10 +77,36 @@ describe("parseGitRemoteUrl", () => {
       repository: "repo",
     });
   });
+
+  it("should parse repo names containing dots", () => {
+    expect(parseGitRemoteUrl("git@github.com:org/my.repo.git")).toEqual({
+      provider: "gh",
+      organization: "org",
+      repository: "my.repo",
+    });
+    expect(parseGitRemoteUrl("https://github.com/org/my.dotted.repo")).toEqual({
+      provider: "gh",
+      organization: "org",
+      repository: "my.dotted.repo",
+    });
+  });
+
+  it("should strip credentials from HTTPS URL for provider lookup", () => {
+    expect(parseGitRemoteUrl("https://token@github.com/org/repo.git")).toEqual({
+      provider: "gh",
+      organization: "org",
+      repository: "repo",
+    });
+    expect(parseGitRemoteUrl("https://user:pass@github.com/org/repo")).toEqual({
+      provider: "gh",
+      organization: "org",
+      repository: "repo",
+    });
+  });
 });
 
 vi.mock("child_process", () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 describe("detectRepoContext", () => {
@@ -89,8 +115,8 @@ describe("detectRepoContext", () => {
   });
 
   it("should detect repo context from git remote", async () => {
-    const { execSync } = await import("child_process");
-    vi.mocked(execSync).mockReturnValue("git@github.com:codacy/codacy-cloud-cli.git\n");
+    const { execFileSync } = await import("child_process");
+    vi.mocked(execFileSync).mockReturnValue("git@github.com:codacy/codacy-cloud-cli.git\n");
 
     const result = detectRepoContext();
     expect(result).toEqual({
@@ -101,8 +127,8 @@ describe("detectRepoContext", () => {
   });
 
   it("should throw when git remote is not available", async () => {
-    const { execSync } = await import("child_process");
-    vi.mocked(execSync).mockImplementation(() => {
+    const { execFileSync } = await import("child_process");
+    vi.mocked(execFileSync).mockImplementation(() => {
       throw new Error("not a git repo");
     });
 
@@ -110,9 +136,17 @@ describe("detectRepoContext", () => {
   });
 
   it("should throw when remote URL has unknown provider", async () => {
-    const { execSync } = await import("child_process");
-    vi.mocked(execSync).mockReturnValue("git@custom-host.com:org/repo.git\n");
+    const { execFileSync } = await import("child_process");
+    vi.mocked(execFileSync).mockReturnValue("git@custom-host.com:org/repo.git\n");
 
     expect(() => detectRepoContext()).toThrow("Could not determine provider");
+  });
+
+  it("should redact credentials in error messages", async () => {
+    const { execFileSync } = await import("child_process");
+    vi.mocked(execFileSync).mockReturnValue("https://secret-token@custom-host.com/org/repo.git\n");
+
+    expect(() => detectRepoContext()).toThrow("***@custom-host.com");
+    expect(() => detectRepoContext()).not.toThrow("secret-token");
   });
 });
