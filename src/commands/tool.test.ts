@@ -5,6 +5,13 @@ import { AnalysisService } from "../api/client/services/AnalysisService";
 
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
+vi.mock("../utils/git-remote", () => ({
+  detectRepoContext: vi.fn(() => ({
+    provider: "gh",
+    organization: "auto-org",
+    repository: "auto-repo",
+  })),
+}));
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -276,5 +283,25 @@ describe("tool command", () => {
     ).rejects.toThrow("process.exit called");
 
     mockExit.mockRestore();
+  });
+
+  describe("auto-detect from git remote", () => {
+    it("should auto-detect provider/org/repo when only toolName and option are provided", async () => {
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "tool", "eslint", "--enable"]);
+
+      expect(AnalysisService.listRepositoryTools).toHaveBeenCalledWith(
+        "gh",
+        "auto-org",
+        "auto-repo",
+      );
+      expect(AnalysisService.configureTool).toHaveBeenCalledWith(
+        "gh",
+        "auto-org",
+        "auto-repo",
+        "uuid-eslint",
+        { enabled: true },
+      );
+    });
   });
 });

@@ -53,6 +53,22 @@ codacy <command> --help   # Detailed usage for any command
 | `-V, --version` | Show version |
 | `-h, --help` | Show help |
 
+### Repository Auto-Detection
+
+When you run a command inside a git repository, the CLI automatically detects the **provider**, **organization**, and **repository** from the `origin` remote URL. This means you can skip those arguments entirely:
+
+```bash
+# Inside a GitHub repo — auto-detects provider/org/repo
+codacy issues
+codacy pull-request 42
+codacy tools
+
+# Or specify them explicitly
+codacy issues gh my-org my-repo
+```
+
+Supported providers: GitHub (`gh`), GitLab (`gl`), Bitbucket (`bb`).
+
 ### Commands
 
 | Command | Description |
@@ -60,19 +76,17 @@ codacy <command> --help   # Detailed usage for any command
 | `login` | Authenticate with Codacy by storing your API token |
 | `logout` | Remove stored Codacy API token |
 | `info` | Show authenticated user info and their organizations |
-| `repositories <provider> <org>` | List repositories for an organization |
-| `repository <provider> <org> <repo>` | Show metrics for a repository, or add/remove/follow/unfollow/reanalyze it |
-| `issues <provider> <org> <repo>` | Search issues in a repository with filters |
-| `issue <provider> <org> <repo> <id>` | Show details for a single issue, or ignore/unignore it |
-| `findings <provider> <org> [repo]` | Show security findings for a repository or organization |
-| `finding <provider> <org> <id>` | Show details for a single security finding, or ignore/unignore it |
-| `pull-request <provider> <org> <repo> <pr>` | Show PR analysis, issues, diff coverage, and changed files; or reanalyze it |
-| `tools <provider> <org> <repo>` | List analysis tools configured for a repository |
-| `tool <provider> <org> <repo> <tool>` | Enable, disable, or configure an analysis tool |
-| `patterns <provider> <org> <repo> <tool>` | List patterns for a tool, or bulk enable/disable them |
-| `pattern <provider> <org> <repo> <tool> <id>` | Enable, disable, or set parameters for a pattern |
-
-Provider shortcodes: `gh` (GitHub), `gl` (GitLab), `bb` (Bitbucket).
+| `repositories [provider] [org]` | List repositories for an organization |
+| `repository [provider] [org] [repo]` | Show metrics for a repository, or add/remove/follow/unfollow/reanalyze it |
+| `issues [provider] [org] [repo]` | Search issues in a repository with filters |
+| `issue [provider] [org] [repo] <id>` | Show details for a single issue, or ignore/unignore it |
+| `findings [provider] [org] [repo]` | Show security findings for a repository or organization |
+| `finding [provider] [org] <id>` | Show details for a single security finding, or ignore/unignore it |
+| `pull-request [provider] [org] [repo] <pr>` | Show PR analysis, issues, diff coverage, and changed files; or reanalyze it |
+| `tools [provider] [org] [repo]` | List analysis tools configured for a repository |
+| `tool [provider] [org] [repo] <tool>` | Enable, disable, or configure an analysis tool |
+| `patterns [provider] [org] [repo] <tool>` | List patterns for a tool, or bulk enable/disable them |
+| `pattern [provider] [org] [repo] <tool> <id>` | Enable, disable, or set parameters for a pattern |
 
 Run `codacy <command> --help` for full argument and option details for any command.
 

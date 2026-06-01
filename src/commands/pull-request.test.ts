@@ -13,6 +13,13 @@ vi.mock("../api/client/services/RepositoryService");
 vi.mock("../api/client/services/ToolsService");
 vi.mock("../api/client/services/FileService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
+vi.mock("../utils/git-remote", () => ({
+  detectRepoContext: vi.fn(() => ({
+    provider: "gh",
+    organization: "auto-org",
+    repository: "auto-repo",
+  })),
+}));
 vi.spyOn(console, "log").mockImplementation(() => {});
 
 function createProgram(): Command {
@@ -1565,5 +1572,29 @@ describe("pull-request command", () => {
     expect(allOutput).toContain("abc1234");
     // Should NOT contain old "Head Commit" label
     expect(allOutput).not.toContain("Head Commit");
+  });
+
+  describe("auto-detect from git remote", () => {
+    it("should auto-detect provider/org/repo when only prNumber is provided", async () => {
+      vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+        mockPrData as any,
+      );
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
+        .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+      vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "pull-request", "42"]);
+
+      expect(AnalysisService.getRepositoryPullRequest).toHaveBeenCalledWith(
+        "gh",
+        "auto-org",
+        "auto-repo",
+        42,
+      );
+    });
   });
 });

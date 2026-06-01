@@ -3,6 +3,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
+import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import {
   getOutputFormat,
   pickDeep,
@@ -222,10 +223,10 @@ export function registerPatternsCommand(program: Command) {
     .command("patterns")
     .alias("pats")
     .description("List patterns for a specific tool in a repository")
-    .argument("<provider>", "git provider (gh, gl, or bb)")
-    .argument("<organization>", "organization name")
-    .argument("<repository>", "repository name")
-    .argument("<toolName>", "tool name")
+    .argument("[provider]", "git provider (gh, gl, or bb) — auto-detected from git remote if omitted")
+    .argument("[organization]", "organization name")
+    .argument("[repository]", "repository name")
+    .argument("[toolName]", "tool name")
     .option("-l, --languages <languages>", "comma-separated list of languages")
     .option(
       "-C, --categories <categories>",
@@ -246,6 +247,7 @@ export function registerPatternsCommand(program: Command) {
       "after",
       `
 Examples:
+  $ codacy-cloud-cli patterns eslint                          # auto-detect from git remote
   $ codacy-cloud-cli patterns gh my-org my-repo eslint
   $ codacy-cloud-cli patterns gh my-org my-repo eslint --severities Critical,High
   $ codacy-cloud-cli patterns gh my-org my-repo eslint --enabled --categories Security
@@ -255,13 +257,21 @@ Examples:
     )
     .action(async function (
       this: Command,
-      provider: string,
-      organization: string,
-      repository: string,
-      toolName: string,
+      providerArg?: string,
+      organizationArg?: string,
+      repositoryArg?: string,
+      toolNameArg?: string,
     ) {
       try {
         checkApiToken();
+        const { provider, organization, repository, trailingArgs } =
+          resolveRepoArgs(
+            [providerArg, organizationArg, repositoryArg, toolNameArg],
+            1,
+            "patterns",
+            ["toolName"],
+          );
+        const toolName = trailingArgs[0];
         const format = getOutputFormat(this);
         const opts = this.opts();
 

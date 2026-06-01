@@ -3,6 +3,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
+import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import { getOutputFormat, pickDeep, printJson } from "../utils/output";
 import { printIssueDetail } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
@@ -15,10 +16,10 @@ export function registerIssueCommand(program: Command) {
     .command("issue")
     .alias("iss")
     .description("Show full details of a single quality issue")
-    .argument("<provider>", "git provider (gh, gl, or bb)")
-    .argument("<organization>", "organization name")
-    .argument("<repository>", "repository name")
-    .argument("<issueId>", "issue ID (shown at the bottom of each issue card)")
+    .argument("[provider]", "git provider (gh, gl, or bb) — auto-detected from git remote if omitted")
+    .argument("[organization]", "organization name")
+    .argument("[repository]", "repository name")
+    .argument("[issueId]", "issue ID (shown at the bottom of each issue card)")
     .option("-I, --ignore", "ignore this issue")
     .option(
       "-R, --ignore-reason <reason>",
@@ -31,6 +32,7 @@ export function registerIssueCommand(program: Command) {
       "after",
       `
 Examples:
+  $ codacy issue 12345                                # auto-detect from git remote
   $ codacy issue gh my-org my-repo 12345
   $ codacy issue gh my-org my-repo 12345 --output json
   $ codacy issue gh my-org my-repo 12345 --ignore
@@ -39,13 +41,21 @@ Examples:
     )
     .action(async function (
       this: Command,
-      provider: string,
-      organization: string,
-      repository: string,
-      issueIdStr: string,
+      providerArg?: string,
+      organizationArg?: string,
+      repositoryArg?: string,
+      issueIdArg?: string,
     ) {
       try {
         checkApiToken();
+        const { provider, organization, repository, trailingArgs } =
+          resolveRepoArgs(
+            [providerArg, organizationArg, repositoryArg, issueIdArg],
+            1,
+            "issue",
+            ["issueId"],
+          );
+        const issueIdStr = trailingArgs[0];
         const format = getOutputFormat(this);
         const issueId = parseInt(issueIdStr, 10);
         const shouldIgnore: boolean = !!this.opts().ignore;

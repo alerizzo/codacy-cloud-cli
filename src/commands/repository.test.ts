@@ -9,6 +9,13 @@ vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/RepositoryService");
 vi.mock("../api/client/services/CodingStandardsService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
+vi.mock("../utils/git-remote", () => ({
+  detectRepoContext: vi.fn(() => ({
+    provider: "gh",
+    organization: "auto-org",
+    repository: "auto-repo",
+  })),
+}));
 vi.spyOn(console, "log").mockImplementation(() => {});
 
 // Default mocks for analysis status API calls (overridden in specific tests)
@@ -766,5 +773,28 @@ describe("repository command", () => {
     expect(parsed.repository.gradeLetter).toBeUndefined();
     expect(parsed.repository.grade).toBeUndefined();
     expect(parsed.repository.repository.repositoryId).toBeUndefined();
+  });
+
+  describe("auto-detect from git remote", () => {
+    it("should auto-detect provider/org/repo when no positional args are provided", async () => {
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: mockRepoData as any,
+      });
+      vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+        data: [] as any,
+      });
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: { counts: { categories: [], levels: [], languages: [], tags: [], patterns: [], authors: [] } },
+      });
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "repository"]);
+
+      expect(AnalysisService.getRepositoryWithAnalysis).toHaveBeenCalledWith(
+        "gh",
+        "auto-org",
+        "auto-repo",
+      );
+    });
   });
 });

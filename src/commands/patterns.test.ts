@@ -5,6 +5,13 @@ import { AnalysisService } from "../api/client/services/AnalysisService";
 
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
+vi.mock("../utils/git-remote", () => ({
+  detectRepoContext: vi.fn(() => ({
+    provider: "gh",
+    organization: "auto-org",
+    repository: "auto-repo",
+  })),
+}));
 vi.spyOn(console, "log").mockImplementation(() => {});
 vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -717,6 +724,32 @@ describe("patterns command", () => {
       // The enabled filter should not be passed to bulk update
       // updateRepositoryToolPatterns has no enabled query param
       expect(call).toHaveLength(11);
+    });
+  });
+
+  describe("auto-detect from git remote", () => {
+    it("should auto-detect provider/org/repo when only toolName is provided", async () => {
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "patterns", "eslint"]);
+
+      expect(AnalysisService.listRepositoryTools).toHaveBeenCalledWith(
+        "gh",
+        "auto-org",
+        "auto-repo",
+      );
+      expect(AnalysisService.listRepositoryToolPatterns).toHaveBeenCalledWith(
+        "gh",
+        "auto-org",
+        "auto-repo",
+        "uuid-eslint",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      );
     });
   });
 });

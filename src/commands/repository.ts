@@ -3,6 +3,7 @@ import ora from "ora";
 import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
+import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import {
   createTable,
   formatFriendlyDate,
@@ -213,9 +214,9 @@ export function registerRepositoryCommand(program: Command) {
     .command("repository")
     .alias("repo")
     .description("Show details, status, and metrics for a specific repository")
-    .argument("<provider>", "git provider (gh, gl, or bb)")
-    .argument("<organization>", "organization name")
-    .argument("<repository>", "repository name")
+    .argument("[provider]", "git provider (gh, gl, or bb) — auto-detected from git remote if omitted")
+    .argument("[organization]", "organization name")
+    .argument("[repository]", "repository name")
     .option("-a, --add", "add this repository to Codacy")
     .option("-r, --remove", "remove this repository from Codacy")
     .option("-f, --follow", "follow this repository on Codacy")
@@ -227,6 +228,7 @@ export function registerRepositoryCommand(program: Command) {
       "after",
       `
 Examples:
+  $ codacy-cloud-cli repository                             # auto-detect from git remote
   $ codacy-cloud-cli repository gh my-org my-repo
   $ codacy-cloud-cli repository gh my-org my-repo --output json
   $ codacy-cloud-cli repository gh my-org my-repo --add
@@ -239,12 +241,18 @@ Examples:
     )
     .action(async function (
       this: Command,
-      provider: string,
-      organization: string,
-      repository: string,
+      providerArg?: string,
+      organizationArg?: string,
+      repositoryArg?: string,
     ) {
       try {
         checkApiToken();
+        const { provider, organization, repository } = resolveRepoArgs(
+          [providerArg, organizationArg, repositoryArg],
+          0,
+          "repository",
+          [],
+        );
         const opts = this.opts();
 
         // ── Action: add ──────────────────────────────────────────────────
