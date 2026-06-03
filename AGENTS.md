@@ -76,7 +76,10 @@ codacy-cloud-cli/
   - `dayjs` for date formatting — for "last updated" style dates, use `formatFriendlyDate()` from `utils/output.ts` (relative for today, "Yesterday", otherwise YYYY-MM-DD)
 - **Output:** Default output is human readable with tables and colors, but can be overridden with the `--output json` flag.
 - **Pagination:** All commands calling paginated APIs must call `printPaginationWarning(response.pagination, hint)` from `utils/output.ts` after displaying results. The hint should suggest command-specific filtering options.
-- **Polling / waiting:** Commands that wait on a remote operation (e.g. `--reanalyze-and-wait`) use the shared helpers in `utils/reanalyze-wait.ts`. Route polling delays through the exported `timers.sleep` so tests can stub it (`vi.spyOn(timers, "sleep").mockResolvedValue()`). Prefer this over calling `setTimeout`/`sleep` directly in a command, unless you have a clear reason not to. Default cadence is `POLL_INTERVAL_MS` (10s), capped at `MAX_WAIT_MS` (20min).
+- **Polling / waiting:** Commands that wait on a remote operation (e.g. `--reanalyze-and-wait`) use the shared helpers in `utils/reanalyze-wait.ts`.
+  - Route polling delays through the exported `timers.sleep` so tests can stub it (`vi.spyOn(timers, "sleep").mockResolvedValue()`).
+  - Prefer that over calling `setTimeout`/`sleep` directly in a command, unless you have a clear reason not to.
+  - Default cadence is `POLL_INTERVAL_MS` (10s), capped at `MAX_WAIT_MS` (20min).
 - **Error handling:** Use `try/catch` with the shared `handleError()` from `src/utils/error.ts`
 - **Authentication:** All commands that call the API must call `checkApiToken()` from `src/utils/auth.ts` before making requests
 - **API base URL:** `https://app.codacy.com/api/v3` (configured in `src/index.ts` via `OpenAPI.BASE`)

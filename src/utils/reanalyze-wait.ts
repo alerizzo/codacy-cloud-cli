@@ -400,6 +400,13 @@ function renderCategoryDeltas(entries: DeltaEntry[]): void {
   console.log();
 }
 
+/** Print whichever per-dimension sections have changes. */
+function renderDeltaSections(delta: SnapshotDelta): void {
+  if (delta.byPattern.length > 0) renderPatternDeltas(delta.byPattern);
+  if (delta.bySeverity.length > 0) renderSeverityDeltas(delta.bySeverity);
+  if (delta.byCategory.length > 0) renderCategoryDeltas(delta.byCategory);
+}
+
 /** Print the human-readable delta report. */
 export function renderReanalyzeReport(
   delta: SnapshotDelta,
@@ -418,12 +425,10 @@ export function renderReanalyzeReport(
     delta.bySeverity.length > 0 ||
     delta.byCategory.length > 0;
 
-  if (!hasChanges) {
-    console.log(ansis.dim("No change in issues."));
+  if (hasChanges) {
+    renderDeltaSections(delta);
   } else {
-    if (delta.byPattern.length > 0) renderPatternDeltas(delta.byPattern);
-    if (delta.bySeverity.length > 0) renderSeverityDeltas(delta.bySeverity);
-    if (delta.byCategory.length > 0) renderCategoryDeltas(delta.byCategory);
+    console.log(ansis.dim("No change in issues."));
   }
 
   console.log(

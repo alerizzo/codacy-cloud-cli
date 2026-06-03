@@ -567,17 +567,19 @@ export const PATTERN_JSON_FIELDS = [
  * Header: enabled icon (☑️ enforced by a standard, ✅ enabled directly, dim ⬛
  * disabled), title, id, "Recommended" tag, and an "Enforced by" line.
  */
+/** Status icon: ☑️ standard-enforced, ✅ enabled directly, dim ⬛ disabled. */
+function patternIcon(enabled: boolean, enforcedByStandard: boolean): string {
+  if (!enabled) return ansis.dim("⬛");
+  return enforcedByStandard ? "☑️" : "✅";
+}
+
 function printPatternHeader(
   cp: ConfiguredPattern,
   enabled: boolean,
   enforcedByStandard: boolean,
 ): void {
   const p = cp.patternDefinition;
-  const enabledIcon = enabled
-    ? enforcedByStandard
-      ? "☑️"
-      : "✅"
-    : ansis.dim("⬛");
+  const enabledIcon = patternIcon(enabled, enforcedByStandard);
   const titleText = p.title ?? p.id;
   const titleColored = enabled ? ansis.white(titleText) : ansis.dim(titleText);
   const recommendedStr = p.enabled ? ` | ${ansis.magenta("Recommended")}` : "";
