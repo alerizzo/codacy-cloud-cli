@@ -289,16 +289,34 @@ async function fetchPatternStandards(
  *  - pattern enforced by a coding standard → manual "update the standard" step
  *  - otherwise → a runnable `codacy pattern … --disable` command
  */
+interface NoiseSuggestionsResult {
+  suggestions: NoiseSuggestion[];
+  /** Resolvable noisy patterns beyond MAX_NOISE_SUGGESTIONS, not detailed. */
+  remaining: number;
+}
+
 async function buildNoiseSuggestions(
   noisy: PatternsCount[],
   globalTools: Tool[],
   repoTools: AnalysisTool[],
   ctx: { provider: string; organization: string; repository: string },
-): Promise<NoiseSuggestion[]> {
-  const results = await Promise.all(
-    noisy.map(async (pattern): Promise<NoiseSuggestion | null> => {
-      const tool = resolvePatternTool(pattern.id, globalTools);
-      if (!tool) return null; // can't identify the tool — discard silently
+): Promise<NoiseSuggestionsResult> {
+  // Resolve owning tools synchronously and drop patterns we can't identify, then
+  // cap to MAX_NOISE_SUGGESTIONS *before* any network calls — only the patterns
+  // we actually display need their config-file / coding-standard status checked.
+  const resolved = noisy
+    .map((pattern) => ({
+      pattern,
+      tool: resolvePatternTool(pattern.id, globalTools),
+    }))
+    .filter(
+      (r): r is { pattern: PatternsCount; tool: Tool } => r.tool !== undefined,
+    );
+
+  const candidates = resolved.slice(0, MAX_NOISE_SUGGESTIONS);
+
+  const suggestions = await Promise.all(
+    candidates.map(async ({ pattern, tool }): Promise<NoiseSuggestion> => {
       // The `pattern` command matches the tool by name; hyphenate spaces per its convention.
       const toolToken = tool.name.replace(/\s+/g, "-");
       const repoTool = findRepoTool(repoTools, tool);
@@ -336,17 +354,20 @@ async function buildNoiseSuggestions(
       };
     }),
   );
-  return results.filter((s): s is NoiseSuggestion => s !== null);
+
+  return { suggestions, remaining: resolved.length - candidates.length };
 }
 
 /** Print the "Suggested actions to reduce noise" section. No-op when empty. */
-function printNoiseSuggestions(suggestions: NoiseSuggestion[]): void {
+function printNoiseSuggestions(
+  suggestions: NoiseSuggestion[],
+  remaining: number,
+): void {
   if (suggestions.length === 0) return;
 
   console.log(ansis.bold("\nSuggested actions to reduce noise\n"));
 
-  const shown = suggestions.slice(0, MAX_NOISE_SUGGESTIONS);
-  for (const s of shown) {
+  for (const s of suggestions) {
     const label = s.total === 1 ? "issue" : "issues";
     const reduction = ansis.green(`(-${formatCount(s.total)} ${label})`);
     console.log(`  Disable ${ansis.bold(`"${s.title}"`)} ${reduction}`);
@@ -358,7 +379,6 @@ function printNoiseSuggestions(suggestions: NoiseSuggestion[]): void {
     console.log();
   }
 
-  const remaining = suggestions.length - shown.length;
   if (remaining > 0) {
     console.log(
       ansis.dim(
@@ -641,6 +661,7 @@ Examples:
           // spinner so the user sees progress rather than a stall.
           const noisy = detectNoisyPatterns(counts.patterns);
           let suggestions: NoiseSuggestion[] = [];
+          let moreNoisy = 0;
           if (noisy.length > 0) {
             spinner.text = "Checking for noisy patterns...";
             // Global tools give each pattern's owning tool (via prefix); repo
@@ -654,12 +675,14 @@ Examples:
                 repository,
               ),
             ]);
-            suggestions = await buildNoiseSuggestions(
+            const built = await buildNoiseSuggestions(
               noisy,
               globalTools,
               repoToolsResponse.data,
               { provider, organization, repository },
             );
+            suggestions = built.suggestions;
+            moreNoisy = built.remaining;
           }
           spinner.stop();
 
@@ -672,7 +695,7 @@ Examples:
             authors: counts.authors,
             potentialFalsePositives: counts.potentialFalsePositives,
           });
-          printNoiseSuggestions(suggestions);
+          printNoiseSuggestions(suggestions, moreNoisy);
         } else {
           const pageSize = Math.min(limit, 100);
           let issues: CommitIssue[] = [];

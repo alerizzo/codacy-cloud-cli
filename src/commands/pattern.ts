@@ -10,6 +10,8 @@ import {
   findToolByName,
   printPatternCard,
   patternEnforcedBy,
+  configFileNotice,
+  CONFIG_FILE_LOCKED_MESSAGE,
   PATTERN_JSON_FIELDS,
 } from "../utils/formatting";
 import { ConfigureToolBody } from "../api/client/models/ConfigureToolBody";
@@ -95,18 +97,14 @@ Examples:
         // are overwritten and can't be shown or changed through the API.
         if (tool.settings.usesConfigurationFile) {
           if (isModify) {
-            spinner.fail(
-              "Tool uses a local configuration file, can't be updated.",
-            );
+            spinner.fail(CONFIG_FILE_LOCKED_MESSAGE);
             process.exit(1);
           }
           spinner.stop();
           if (format === "json") {
             printJson({ tool: tool.name, usesConfigurationFile: true });
           } else {
-            console.log(
-              ansis.yellow(`${tool.name} is using a local configuration file.`),
-            );
+            console.log(ansis.yellow(configFileNotice(tool.name)));
           }
           return;
         }

@@ -154,6 +154,28 @@ describe("diffSnapshots", () => {
       severity: "Error",
     });
   });
+
+  it("sorts unknown severities last instead of first", () => {
+    // A severity outside the canonical order must not jump ahead of known ones.
+    const before: any = {
+      total: 0,
+      bySeverity: {},
+      byCategory: {},
+      byPattern: {},
+    };
+    const after: any = {
+      total: 3,
+      bySeverity: { Mystery: 1, Error: 1, Info: 1 },
+      byCategory: {},
+      byPattern: {},
+    };
+    const delta = diffSnapshots(before, after);
+    expect(delta.bySeverity.map((e) => e.key)).toEqual([
+      "Error",
+      "Info",
+      "Mystery",
+    ]);
+  });
 });
 
 describe("durationFromStatus", () => {

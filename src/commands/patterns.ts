@@ -13,6 +13,8 @@ import {
 import {
   findToolByName,
   printPatternCard,
+  configFileNotice,
+  CONFIG_FILE_LOCKED_MESSAGE,
   PATTERN_JSON_FIELDS,
 } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
@@ -235,18 +237,14 @@ Examples:
         // the API. Short-circuit before fetching/updating patterns.
         if (tool.settings.usesConfigurationFile) {
           if (opts.enableAll || opts.disableAll) {
-            spinner.fail(
-              "Tool uses a local configuration file, can't be updated.",
-            );
+            spinner.fail(CONFIG_FILE_LOCKED_MESSAGE);
             process.exit(1);
           }
           spinner.stop();
           if (format === "json") {
             printJson({ tool: tool.name, usesConfigurationFile: true, patterns: [] });
           } else {
-            console.log(
-              ansis.yellow(`${tool.name} is using a local configuration file.`),
-            );
+            console.log(ansis.yellow(configFileNotice(tool.name)));
           }
           return;
         }

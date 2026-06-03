@@ -564,18 +564,15 @@ export const PATTERN_JSON_FIELDS = [
 ];
 
 /**
- * Print a single configured-pattern card. Shared by the `patterns` (list) and
- * `pattern` (single info) commands so both render identically.
- *
- * Icons: ☑️ when enforced by a coding standard, ✅ when enabled directly,
- * dim ⬛ when disabled. (`enabled` is OR'd with `enabledBy` to work around an
- * API quirk where a standard-enforced pattern can report `enabled: false`.)
+ * Header: enabled icon (☑️ enforced by a standard, ✅ enabled directly, dim ⬛
+ * disabled), title, id, "Recommended" tag, and an "Enforced by" line.
  */
-export function printPatternCard(cp: ConfiguredPattern): void {
+function printPatternHeader(
+  cp: ConfiguredPattern,
+  enabled: boolean,
+  enforcedByStandard: boolean,
+): void {
   const p = cp.patternDefinition;
-  const separator = ansis.dim("─".repeat(40));
-  const enforcedByStandard = cp.enabledBy && cp.enabledBy.length > 0;
-  const enabled = cp.enabled || enforcedByStandard; // enabled should be enough, but there is a bug in the API
   const enabledIcon = enabled
     ? enforcedByStandard
       ? "☑️"
@@ -583,18 +580,21 @@ export function printPatternCard(cp: ConfiguredPattern): void {
     : ansis.dim("⬛");
   const titleText = p.title ?? p.id;
   const titleColored = enabled ? ansis.white(titleText) : ansis.dim(titleText);
-  const idStr = ansis.dim(`(${p.id})`);
   const recommendedStr = p.enabled ? ` | ${ansis.magenta("Recommended")}` : "";
 
-  console.log(separator);
-  console.log(`${enabledIcon} ${titleColored} ${idStr}${recommendedStr}`);
+  console.log(ansis.dim("─".repeat(40)));
+  console.log(
+    `${enabledIcon} ${titleColored} ${ansis.dim(`(${p.id})`)}${recommendedStr}`,
+  );
 
   if (enforcedByStandard) {
     const names = cp.enabledBy.map((s) => s.name).join(", ");
     console.log(`   ${ansis.dim(`Enforced by: ${names}`)}`);
   }
+}
 
-  // Metadata line: severity | category subcategory | languages | tags
+/** Metadata line (severity | category subcategory | languages | tags) + description. */
+function printPatternMeta(p: Pattern): void {
   const meta: string[] = [colorSeverity(p.severityLevel)];
   meta.push(p.category + (p.subCategory ? ` ${ansis.dim(p.subCategory)}` : ""));
   if (p.languages && p.languages.length > 0) meta.push(p.languages.join(", "));
@@ -604,24 +604,43 @@ export function printPatternCard(cp: ConfiguredPattern): void {
   if (p.description) {
     console.log(`   ${ansis.dim(p.description)}`);
   }
+}
 
+/** "Why?" / "How to fix?" documentation lines. */
+function printPatternDocs(p: Pattern): void {
   if (p.rationale) {
     console.log();
     console.log(`   ${ansis.white("Why?")} ${ansis.dim(p.rationale)}`);
   }
-
   if (p.solution) {
     console.log(`   ${ansis.white("How to fix?")} ${ansis.dim(p.solution)}`);
   }
+}
 
-  // Parameters — only shown when enabled and parameters are set
-  if (cp.enabled && cp.parameters && cp.parameters.length > 0) {
-    console.log();
-    console.log("   Parameters:");
-    for (const param of cp.parameters) {
-      console.log(`     - ${param.name} = ${param.value}`);
-    }
+/** Configured parameters — only shown when the pattern is enabled and has some. */
+function printPatternParams(cp: ConfiguredPattern): void {
+  if (!cp.enabled || !cp.parameters || cp.parameters.length === 0) return;
+  console.log();
+  console.log("   Parameters:");
+  for (const param of cp.parameters) {
+    console.log(`     - ${param.name} = ${param.value}`);
   }
+}
+
+/**
+ * Print a single configured-pattern card. Shared by the `patterns` (list) and
+ * `pattern` (single info) commands so both render identically.
+ *
+ * (`enabled` is OR'd with `enabledBy` to work around an API quirk where a
+ * standard-enforced pattern can report `enabled: false`.)
+ */
+export function printPatternCard(cp: ConfiguredPattern): void {
+  const enforcedByStandard = !!(cp.enabledBy && cp.enabledBy.length > 0);
+  const enabled = cp.enabled || enforcedByStandard;
+  printPatternHeader(cp, enabled, enforcedByStandard);
+  printPatternMeta(cp.patternDefinition);
+  printPatternDocs(cp.patternDefinition);
+  printPatternParams(cp);
 }
 
 /**
@@ -631,6 +650,17 @@ export function printPatternCard(cp: ConfiguredPattern): void {
 export function patternEnforcedBy(cp: ConfiguredPattern): string[] {
   return cp.enabledBy?.map((s) => s.name) ?? [];
 }
+
+/**
+ * Shared messaging for tools whose patterns are managed by a local config file.
+ * Centralized so the `pattern` and `patterns` commands stay consistent.
+ */
+// Read paths (listing / showing a pattern): patterns can't be fetched.
+export const configFileNotice = (toolName: string): string =>
+  `${toolName} is using a local configuration file.`;
+// Write paths (enable/disable/customize): the update is refused.
+export const CONFIG_FILE_LOCKED_MESSAGE =
+  "Tool uses a local configuration file, can't be updated.";
 
 /**
  * Find a tool from a list by name using best-match logic:

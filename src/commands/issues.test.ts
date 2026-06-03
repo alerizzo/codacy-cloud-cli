@@ -297,7 +297,7 @@ describe("issues command", () => {
       ]);
 
       // Strip ANSI codes so bold/color don't break substring matches.
-      const output = getAllOutput().replace(new RegExp(String.fromCharCode(27) + "\[[0-9;]*m", "g"), "");
+      const output = getAllOutput().replace(/\x1b\[[0-9;]*m/g, "");
       expect(output).toContain("Suggested actions to reduce noise");
       expect(output).toContain('Disable "Use of assert detected"');
       expect(output).toContain("(-2.5k issues)");
@@ -320,7 +320,7 @@ describe("issues command", () => {
         "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
       ]);
 
-      const output = getAllOutput().replace(new RegExp(String.fromCharCode(27) + "\[[0-9;]*m", "g"), "");
+      const output = getAllOutput().replace(/\x1b\[[0-9;]*m/g, "");
       expect(output).toContain("Suggested actions to reduce noise");
       expect(output).toContain(
         "Update your local Bandit configuration file to disable the pattern",
@@ -347,7 +347,7 @@ describe("issues command", () => {
         "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
       ]);
 
-      const output = getAllOutput().replace(new RegExp(String.fromCharCode(27) + "\[[0-9;]*m", "g"), "");
+      const output = getAllOutput().replace(/\x1b\[[0-9;]*m/g, "");
       expect(output).toContain("Update OWASP Top 10 to disable the pattern");
       expect(output).not.toContain("codacy pattern");
     });

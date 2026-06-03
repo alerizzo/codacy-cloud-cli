@@ -115,6 +115,22 @@ export function snapshotFromOverview(
   return { total, bySeverity, byCategory, byPattern };
 }
 
+/** Increment (or create) a pattern bucket for one PR issue's pattern. */
+function tallyPattern(
+  byPattern: Record<string, PatternBucket>,
+  id: string,
+  title: string | undefined,
+  category: string,
+  severity: SeverityLevel,
+): void {
+  const existing = byPattern[id];
+  if (existing) {
+    existing.count++;
+    return;
+  }
+  byPattern[id] = { title: title || id, category, severity, count: 1 };
+}
+
 /**
  * Build a snapshot from a list of pull-request issues. Each issue carries its
  * pattern's category and severity, so pattern buckets are fully annotated.
@@ -130,18 +146,7 @@ export function snapshotFromPrIssues(issues: CommitDeltaIssue[]): IssueSnapshot 
     total++;
     bySeverity[p.severityLevel] = (bySeverity[p.severityLevel] ?? 0) + 1;
     byCategory[p.category] = (byCategory[p.category] ?? 0) + 1;
-
-    const existing = byPattern[p.id];
-    if (existing) {
-      existing.count++;
-    } else {
-      byPattern[p.id] = {
-        title: p.title || p.id,
-        category: p.category,
-        severity: p.severityLevel,
-        count: 1,
-      };
-    }
+    tallyPattern(byPattern, p.id, p.title, p.category, p.severityLevel);
   }
 
   return { total, bySeverity, byCategory, byPattern };
@@ -162,49 +167,31 @@ function diffCountMap(
   return out;
 }
 
-/** Compute per-dimension net deltas (after − before), dropping unchanged buckets. */
-export function diffSnapshots(
-  before: IssueSnapshot,
-  after: IssueSnapshot,
-): SnapshotDelta {
-  // Severity — sorted by canonical order (Critical → Minor).
-  const bySeverity: DeltaEntry[] = diffCountMap(
-    before.bySeverity,
-    after.bySeverity,
-  )
-    .map(({ key, delta }) => ({
-      key,
-      label: SEVERITY_DISPLAY[key] ?? key,
-      delta,
-      severity: key as SeverityLevel,
-    }))
-    .sort(
-      (a, b) =>
-        SEVERITY_ORDER.indexOf(a.severity!) -
-        SEVERITY_ORDER.indexOf(b.severity!),
-    );
+/** Canonical sort rank for a severity; unknown values sort last. */
+function severityRank(severity: SeverityLevel | undefined): number {
+  const idx = SEVERITY_ORDER.indexOf(severity as SeverityLevel);
+  return idx === -1 ? SEVERITY_ORDER.length : idx;
+}
 
-  // Category — sorted by magnitude of change.
-  const byCategory: DeltaEntry[] = diffCountMap(
-    before.byCategory,
-    after.byCategory,
-  )
-    .map(({ key, delta }) => ({ key, label: key, delta }))
-    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.label.localeCompare(b.label));
+/** Sort delta entries by magnitude of change, breaking ties alphabetically. */
+function byMagnitude(a: DeltaEntry, b: DeltaEntry): number {
+  return Math.abs(b.delta) - Math.abs(a.delta) || a.label.localeCompare(b.label);
+}
 
-  // Pattern — union of ids, annotated from whichever snapshot has the bucket.
-  const patternIds = new Set([
-    ...Object.keys(before.byPattern),
-    ...Object.keys(after.byPattern),
-  ]);
-  const byPattern: DeltaEntry[] = [];
-  for (const id of patternIds) {
-    const beforeBucket = before.byPattern[id];
-    const afterBucket = after.byPattern[id];
+/** Pattern deltas — union of ids, annotated from whichever snapshot has the bucket. */
+function diffPatternMap(
+  before: Record<string, PatternBucket>,
+  after: Record<string, PatternBucket>,
+): DeltaEntry[] {
+  const ids = new Set([...Object.keys(before), ...Object.keys(after)]);
+  const out: DeltaEntry[] = [];
+  for (const id of ids) {
+    const beforeBucket = before[id];
+    const afterBucket = after[id];
     const delta = (afterBucket?.count ?? 0) - (beforeBucket?.count ?? 0);
     if (delta === 0) continue;
     const bucket = afterBucket ?? beforeBucket;
-    byPattern.push({
+    out.push({
       key: id,
       label: bucket.title,
       delta,
@@ -212,9 +199,30 @@ export function diffSnapshots(
       severity: bucket.severity,
     });
   }
-  byPattern.sort(
-    (a, b) => Math.abs(b.delta) - Math.abs(a.delta) || a.label.localeCompare(b.label),
-  );
+  return out.sort(byMagnitude);
+}
+
+/** Compute per-dimension net deltas (after − before), dropping unchanged buckets. */
+export function diffSnapshots(
+  before: IssueSnapshot,
+  after: IssueSnapshot,
+): SnapshotDelta {
+  // Severity — sorted by canonical order (Critical → Minor; unknown last).
+  const bySeverity: DeltaEntry[] = diffCountMap(before.bySeverity, after.bySeverity)
+    .map(({ key, delta }) => ({
+      key,
+      label: SEVERITY_DISPLAY[key] ?? key,
+      delta,
+      severity: key as SeverityLevel,
+    }))
+    .sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
+
+  // Category — sorted by magnitude of change.
+  const byCategory: DeltaEntry[] = diffCountMap(before.byCategory, after.byCategory)
+    .map(({ key, delta }) => ({ key, label: key, delta }))
+    .sort(byMagnitude);
+
+  const byPattern = diffPatternMap(before.byPattern, after.byPattern);
 
   return {
     totalBefore: before.total,
@@ -349,6 +357,49 @@ function cellWidth(entries: DeltaEntry[]): number {
   }, 0);
 }
 
+/** Print the "By pattern:" section (soft-capped at PATTERN_LIMIT rows). */
+function renderPatternDeltas(entries: DeltaEntry[]): void {
+  console.log(ansis.bold("By pattern:"));
+  const width = cellWidth(entries);
+  const shown = entries.slice(0, PATTERN_LIMIT);
+  for (const e of shown) {
+    const annotation =
+      e.category && e.severity
+        ? ansis.dim(
+            `  (${e.category} · ${SEVERITY_DISPLAY[e.severity] ?? e.severity})`,
+          )
+        : "";
+    console.log(`  ${deltaCell(e.delta, width)}  ${e.label}${annotation}`);
+  }
+  const more = entries.length - shown.length;
+  if (more > 0) {
+    console.log(
+      ansis.dim(`  … (${more} more pattern${more === 1 ? "" : "s"} changed)`),
+    );
+  }
+  console.log();
+}
+
+/** Print the "By severity:" section. */
+function renderSeverityDeltas(entries: DeltaEntry[]): void {
+  console.log(ansis.bold("By severity:"));
+  const width = cellWidth(entries);
+  for (const e of entries) {
+    console.log(`  ${deltaCell(e.delta, width)}  ${colorSeverity(e.severity!)}`);
+  }
+  console.log();
+}
+
+/** Print the "By category:" section. */
+function renderCategoryDeltas(entries: DeltaEntry[]): void {
+  console.log(ansis.bold("By category:"));
+  const width = cellWidth(entries);
+  for (const e of entries) {
+    console.log(`  ${deltaCell(e.delta, width)}  ${e.label}`);
+  }
+  console.log();
+}
+
 /** Print the human-readable delta report. */
 export function renderReanalyzeReport(
   delta: SnapshotDelta,
@@ -370,47 +421,9 @@ export function renderReanalyzeReport(
   if (!hasChanges) {
     console.log(ansis.dim("No change in issues."));
   } else {
-    if (delta.byPattern.length > 0) {
-      console.log(ansis.bold("By pattern:"));
-      const width = cellWidth(delta.byPattern);
-      const shown = delta.byPattern.slice(0, PATTERN_LIMIT);
-      for (const e of shown) {
-        const annotation =
-          e.category && e.severity
-            ? ansis.dim(
-                `  (${e.category} · ${SEVERITY_DISPLAY[e.severity] ?? e.severity})`,
-              )
-            : "";
-        console.log(`  ${deltaCell(e.delta, width)}  ${e.label}${annotation}`);
-      }
-      const more = delta.byPattern.length - shown.length;
-      if (more > 0) {
-        console.log(
-          ansis.dim(`  … (${more} more pattern${more === 1 ? "" : "s"} changed)`),
-        );
-      }
-      console.log();
-    }
-
-    if (delta.bySeverity.length > 0) {
-      console.log(ansis.bold("By severity:"));
-      const width = cellWidth(delta.bySeverity);
-      for (const e of delta.bySeverity) {
-        console.log(
-          `  ${deltaCell(e.delta, width)}  ${colorSeverity(e.severity!)}`,
-        );
-      }
-      console.log();
-    }
-
-    if (delta.byCategory.length > 0) {
-      console.log(ansis.bold("By category:"));
-      const width = cellWidth(delta.byCategory);
-      for (const e of delta.byCategory) {
-        console.log(`  ${deltaCell(e.delta, width)}  ${e.label}`);
-      }
-      console.log();
-    }
+    if (delta.byPattern.length > 0) renderPatternDeltas(delta.byPattern);
+    if (delta.bySeverity.length > 0) renderSeverityDeltas(delta.bySeverity);
+    if (delta.byCategory.length > 0) renderCategoryDeltas(delta.byCategory);
   }
 
   console.log(
