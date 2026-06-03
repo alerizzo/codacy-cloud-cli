@@ -77,16 +77,16 @@ Supported providers: GitHub (`gh`), GitLab (`gl`), Bitbucket (`bb`).
 | `logout` | Remove stored Codacy API token |
 | `info` | Show authenticated user info and their organizations |
 | `repositories <provider> <org>` | List repositories for an organization |
-| `repository [provider] [org] [repo]` | Show metrics for a repository, or add/remove/follow/unfollow/reanalyze it |
+| `repository [provider] [org] [repo]` | Show metrics for a repository, or add/remove/follow/unfollow/reanalyze it (optionally waiting for results) |
 | `issues [provider] [org] [repo]` | Search issues in a repository with filters |
 | `issue [provider] [org] [repo] <id>` | Show details for a single issue, or ignore/unignore it |
 | `findings [provider] [org] [repo]` | Show security findings for a repository or organization |
 | `finding <provider> <org> <id>` | Show details for a single security finding, or ignore/unignore it |
-| `pull-request [provider] [org] [repo] <pr>` | Show PR analysis, issues, diff coverage, and changed files; or reanalyze it |
+| `pull-request [provider] [org] [repo] <pr>` | Show PR analysis, issues, diff coverage, and changed files; or reanalyze it (optionally waiting for results) |
 | `tools [provider] [org] [repo]` | List analysis tools configured for a repository |
 | `tool [provider] [org] [repo] <tool>` | Enable, disable, or configure an analysis tool |
 | `patterns [provider] [org] [repo] <tool>` | List patterns for a tool, or bulk enable/disable them |
-| `pattern [provider] [org] [repo] <tool> <id>` | Enable, disable, or set parameters for a pattern |
+| `pattern [provider] [org] [repo] <tool> <id>` | Show a pattern, or enable, disable, or set parameters for it |
 
 Run `codacy <command> --help` for full argument and option details for any command.
 

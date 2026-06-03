@@ -92,6 +92,18 @@ File: `src/commands/tool.test.ts` — 9 tests.
 
 List patterns for a specific tool in a repository, with optional filters. Also supports bulk enabling/disabling matching patterns.
 
+## Configuration file guard
+
+Before listing or bulk-updating, the tool's `settings.usesConfigurationFile` is
+checked. When the tool is driven by a local configuration file its patterns are
+overwritten and the API can't list or change them:
+
+- **List mode**: prints `<tool> is using a local configuration file.` and skips
+  the pattern fetch (exit 0). With `--output json` it emits
+  `{ "tool": "<name>", "usesConfigurationFile": true, "patterns": [] }`.
+- **Bulk mode** (`--enable-all` / `--disable-all`): fails with `Tool uses a
+  local configuration file, can't be updated.` and exits 1.
+
 ## Usage
 
 ```
@@ -157,7 +169,7 @@ After the update, fetches the tool patterns overview and shows a summary:
 
 ## Tests
 
-File: `src/commands/patterns.test.ts` — 23 tests.
+File: `src/commands/patterns.test.ts` — 27 tests.
 
 ---
 
@@ -165,11 +177,12 @@ File: `src/commands/patterns.test.ts` — 23 tests.
 
 ## Purpose
 
-Enable, disable, or set parameters for a specific pattern.
+Show a single pattern's information, or enable, disable, or set parameters for it.
 
 ## Usage
 
 ```
+codacy pattern <provider> <organization> <repository> <toolName> <patternId>            # show info
 codacy pattern <provider> <organization> <repository> <toolName> <patternId> --enable
 codacy pattern <provider> <organization> <repository> <toolName> <patternId> --disable
 codacy pattern <provider> <organization> <repository> <toolName> <patternId> --parameter maxParams=3
@@ -183,16 +196,41 @@ codacy pattern <provider> <organization> <repository> <toolName> <patternId> --p
 | `--disable` | `-d` | Disable the pattern |
 | `--parameter <name=value>` | `-p` | Set a parameter (repeatable) |
 
+## Modes
+
+- **Info mode** (default — no action flag): renders the pattern using the same
+  card format as the `patterns` command (`printPatternCard`). Supports
+  `--output json` (single object via `PATTERN_JSON_FIELDS`).
+- **Modify mode** (`--enable` / `--disable` / `--parameter`): updates the pattern.
+
+There is **no endpoint to fetch a single pattern at repository level**, so both
+modes call `listRepositoryToolPatterns` with `search=<patternId>` and keep only
+the **exact** ID match (the search is fuzzy and can return near-matches).
+
+## Guards (modify mode)
+
+Before changing a pattern, two conditions are checked. Either one prints the
+reason and exits 1 without calling `configureTool`:
+
+- **Local configuration file** (`tool.settings.usesConfigurationFile`): `Tool
+  uses a local configuration file, can't be updated.` (In info mode this prints
+  `<tool> is using a local configuration file.` and exits 0 — patterns aren't
+  fetched.)
+- **Coding-standard enforcement** (the matched pattern's `enabledBy` is
+  non-empty): `Pattern enforced by <names> coding standard(s), can't be
+  modified.`
+
 ## API Endpoints
 
-1. [`listRepositoryTools`](https://api.codacy.com/api/api-docs#listrepositorytools) — to resolve tool name to UUID
-2. [`listRepositoryToolPatterns`](https://api.codacy.com/api/api-docs#listrepositorytoolpatterns) — only when neither `--enable` nor `--disable` is set, to fetch current enabled state
-3. [`configureTool`](https://api.codacy.com/api/api-docs#configuretool) — with a single-pattern `patterns` array in the body
+1. [`listRepositoryTools`](https://api.codacy.com/api/api-docs#listrepositorytools) — to resolve tool name to UUID (and read `usesConfigurationFile`)
+2. [`listRepositoryToolPatterns`](https://api.codacy.com/api/api-docs#listrepositorytoolpatterns) — `search=<patternId>`, to fetch the pattern's current state and `enabledBy` (skipped only when the tool uses a configuration file)
+3. [`configureTool`](https://api.codacy.com/api/api-docs#configuretool) — with a single-pattern `patterns` array in the body (modify mode only)
 
 ## Output
 
-On success: confirmation message per action taken. On failure: error from API.
+Info mode: the pattern card (or JSON). Modify mode: confirmation message per
+action taken. On failure or refusal: a reason message.
 
 ## Tests
 
-File: `src/commands/pattern.test.ts` — 8 tests.
+File: `src/commands/pattern.test.ts` — 15 tests.

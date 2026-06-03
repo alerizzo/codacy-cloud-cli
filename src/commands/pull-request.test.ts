@@ -6,6 +6,7 @@ import { CoverageService } from "../api/client/services/CoverageService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { FileService } from "../api/client/services/FileService";
 import { RepositoryService } from "../api/client/services/RepositoryService";
+import { timers } from "../utils/reanalyze-wait";
 
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/CoverageService");
@@ -1530,6 +1531,131 @@ describe("pull-request command", () => {
       ]);
 
       expect(RepositoryService.reanalyzeCommitById).toHaveBeenCalled();
+    });
+  });
+
+  describe("--reanalyze-and-wait", () => {
+    beforeEach(() => {
+      vi.spyOn(timers, "sleep").mockResolvedValue(undefined);
+    });
+
+    function prIssue(
+      id: string,
+      title: string,
+      category: string,
+      severityLevel: string,
+    ) {
+      return {
+        deltaType: "Added",
+        commitIssue: { patternInfo: { id, title, category, severityLevel } },
+      };
+    }
+
+    // Old timestamps are before t0 (Date.now); "new" ones are far in the future
+    // so they're reliably more recent than the real trigger time.
+    const OLD_S = "2000-01-01T00:00:00Z";
+    const OLD_E = "2000-01-01T00:05:00Z";
+    const NEW_S = "2999-01-01T00:01:00Z";
+    const NEW_E = "2999-01-01T00:02:00Z"; // 60s after NEW_S → "1m 0s"
+
+    function commits(startedAnalysis?: string, endedAnalysis?: string) {
+      return {
+        data: [
+          { commit: { sha: "abc1234567890", startedAnalysis, endedAnalysis } },
+        ],
+      } as any;
+    }
+
+    it("triggers reanalysis, waits, and prints annotated deltas", async () => {
+      vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue({
+        ...mockPrData,
+        pullRequest: { ...mockPrData.pullRequest, headCommitSha: "prhead123" },
+      } as any); // head sha (only fetched once)
+      vi.mocked(AnalysisService.getPullRequestCommits)
+        .mockResolvedValueOnce(commits(OLD_S, OLD_E)) // poll: waiting (before t0)
+        .mockResolvedValueOnce(commits(NEW_S, OLD_E)) // poll: in progress
+        .mockResolvedValueOnce(commits(NEW_S, NEW_E)); // poll: done
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({
+          data: [prIssue("p.params", "Too many parameters", "Complexity", "Warning")],
+          pagination: {},
+        } as any) // baseline: 1 issue
+        .mockResolvedValueOnce({
+          data: [
+            prIssue("p.params", "Too many parameters", "Complexity", "Warning"),
+            prIssue("p.secret", "Hardcoded Secret", "Security", "Error"),
+          ],
+          pagination: {},
+        } as any); // after: 2 issues
+      vi.mocked(RepositoryService.reanalyzeCommitById).mockResolvedValue(
+        undefined as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42", "--reanalyze-and-wait",
+      ]);
+
+      expect(RepositoryService.reanalyzeCommitById).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", { commitUuid: "prhead123" },
+      );
+      const out = (console.log as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0])
+        .join("\n");
+      expect(out).toContain("Analysis finished in 1m 0s");
+      expect(out).toContain("Hardcoded Secret");
+      expect(out).toContain("(Security · Critical)");
+      expect(out).toContain("In total: 1 → 2 issues");
+    });
+
+    it("fails when the PR has no HEAD commit", async () => {
+      vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue({
+        ...mockPrData,
+        pullRequest: { ...mockPrData.pullRequest, headCommitSha: undefined },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42", "--reanalyze-and-wait",
+      ]);
+
+      expect(RepositoryService.reanalyzeCommitById).not.toHaveBeenCalled();
+    });
+
+    it("emits structured JSON with --output json", async () => {
+      vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue({
+        ...mockPrData,
+        pullRequest: { ...mockPrData.pullRequest, headCommitSha: "prhead123" },
+      } as any); // head sha (only fetched once)
+      vi.mocked(AnalysisService.getPullRequestCommits).mockResolvedValueOnce(
+        commits(NEW_S, NEW_E),
+      ); // poll: already done
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({
+          data: [prIssue("p.params", "Too many parameters", "Complexity", "Warning")],
+          pagination: {},
+        } as any)
+        .mockResolvedValueOnce({
+          data: [
+            prIssue("p.params", "Too many parameters", "Complexity", "Warning"),
+            prIssue("p.secret", "Hardcoded Secret", "Security", "Error"),
+          ],
+          pagination: {},
+        } as any);
+      vi.mocked(RepositoryService.reanalyzeCommitById).mockResolvedValue(
+        undefined as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--reanalyze-and-wait", "--output", "json",
+      ]);
+
+      const calls = (console.log as ReturnType<typeof vi.fn>).mock.calls;
+      const parsed = JSON.parse(calls[calls.length - 1][0]);
+      expect(parsed.durationHuman).toBe("1m 0s");
+      expect(parsed.totals).toEqual({ before: 1, after: 2, net: 1 });
     });
   });
 

@@ -10,7 +10,13 @@ import {
   printJson,
   printPaginationWarning,
 } from "../utils/output";
-import { colorSeverity, findToolByName } from "../utils/formatting";
+import {
+  findToolByName,
+  printPatternCard,
+  configFileNotice,
+  CONFIG_FILE_LOCKED_MESSAGE,
+  PATTERN_JSON_FIELDS,
+} from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ConfiguredPattern } from "../api/client/models/ConfiguredPattern";
 import { SeverityLevel } from "../api/client/models/SeverityLevel";
@@ -52,59 +58,6 @@ const CATEGORY_NORMALIZE: Record<string, string> = {
 function normalizeCategory(input: string): string {
   const key = input.toLowerCase().replace(/[\s_-]/g, "");
   return CATEGORY_NORMALIZE[key] ?? input;
-}
-
-function printPatternCard(cp: ConfiguredPattern): void {
-  const p = cp.patternDefinition;
-  const separator = ansis.dim("─".repeat(40));
-  const enforcedByStandard = cp.enabledBy && cp.enabledBy.length > 0;
-  const enabled = cp.enabled || enforcedByStandard; // enabled should be enough, but there is a bug in the API
-  const enabledIcon = enabled
-    ? enforcedByStandard
-      ? "☑️"
-      : "✅"
-    : ansis.dim("⬛");
-  const titleText = p.title ?? p.id;
-  const titleColored = enabled ? ansis.white(titleText) : ansis.dim(titleText);
-  const idStr = ansis.dim(`(${p.id})`);
-  const recommendedStr = p.enabled ? ` | ${ansis.magenta("Recommended")}` : "";
-
-  console.log(separator);
-  console.log(`${enabledIcon} ${titleColored} ${idStr}${recommendedStr}`);
-
-  if (enforcedByStandard) {
-    const names = cp.enabledBy.map((s) => s.name).join(", ");
-    console.log(`   ${ansis.dim(`Enforced by: ${names}`)}`);
-  }
-
-  // Metadata line: severity | category subcategory | languages | tags
-  const meta: string[] = [colorSeverity(p.severityLevel)];
-  meta.push(p.category + (p.subCategory ? ` ${ansis.dim(p.subCategory)}` : ""));
-  if (p.languages && p.languages.length > 0) meta.push(p.languages.join(", "));
-  if (p.tags && p.tags.length > 0) meta.push(p.tags.join(", "));
-  console.log(`   ${meta.join(" | ")}`);
-
-  if (p.description) {
-    console.log(`   ${ansis.dim(p.description)}`);
-  }
-
-  if (p.rationale) {
-    console.log();
-    console.log(`   ${ansis.white("Why?")} ${ansis.dim(p.rationale)}`);
-  }
-
-  if (p.solution) {
-    console.log(`   ${ansis.white("How to fix?")} ${ansis.dim(p.solution)}`);
-  }
-
-  // Parameters — only shown when enabled and parameters are set
-  if (cp.enabled && cp.parameters && cp.parameters.length > 0) {
-    console.log();
-    console.log("   Parameters:");
-    for (const param of cp.parameters) {
-      console.log(`     - ${param.name} = ${param.value}`);
-    }
-  }
 }
 
 interface BulkUpdateArgs {
@@ -182,23 +135,6 @@ function printPatternCards(patterns: ConfiguredPattern[]): void {
     console.log(ansis.dim("No patterns found."));
   }
 }
-
-const JSON_FIELDS = [
-  "enabled",
-  "parameters",
-  "patternDefinition.id",
-  "patternDefinition.title",
-  "patternDefinition.severityLevel",
-  "patternDefinition.category",
-  "patternDefinition.subCategory",
-  "patternDefinition.languages",
-  "patternDefinition.tags",
-  "patternDefinition.enabled",
-  "patternDefinition.description",
-  "patternDefinition.rationale",
-  "patternDefinition.solution",
-  "enabledBy",
-];
 
 function parseFilters(opts: Record<string, any>) {
   const severities = opts.severities
@@ -296,6 +232,23 @@ Examples:
           process.exit(1);
         }
 
+        // When the tool is driven by a local configuration file, the patterns
+        // stored on Codacy are overwritten and can't be listed or changed via
+        // the API. Short-circuit before fetching/updating patterns.
+        if (tool.settings.usesConfigurationFile) {
+          if (opts.enableAll || opts.disableAll) {
+            spinner.fail(CONFIG_FILE_LOCKED_MESSAGE);
+            process.exit(1);
+          }
+          spinner.stop();
+          if (format === "json") {
+            printJson({ tool: tool.name, usesConfigurationFile: true, patterns: [] });
+          } else {
+            console.log(ansis.yellow(configFileNotice(tool.name)));
+          }
+          return;
+        }
+
         const { severities, categories } = parseFilters(opts);
 
         if (opts.enableAll || opts.disableAll) {
@@ -339,7 +292,9 @@ Examples:
         spinner.stop();
 
         if (format === "json") {
-          printJson(response.data.map((cp: any) => pickDeep(cp, JSON_FIELDS)));
+          printJson(
+            response.data.map((cp: any) => pickDeep(cp, PATTERN_JSON_FIELDS)),
+          );
           return;
         }
 

@@ -7,6 +7,7 @@ import { AnalysisResultReason } from "../api/client/models/AnalysisResultReason"
 import { CommitIssue } from "../api/client/models/CommitIssue";
 import { SeverityLevel } from "../api/client/models/SeverityLevel";
 import { Pattern } from "../api/client/models/Pattern";
+import { ConfiguredPattern } from "../api/client/models/ConfiguredPattern";
 import { CodeBlockLine } from "../api/client/models/CodeBlockLine";
 import { CveRecord } from "./cve";
 import { AnalysisTool } from "../api/client/models/AnalysisTool";
@@ -170,6 +171,37 @@ export function printSection(
  */
 export function truncate(text: string, max: number): string {
   return text.length > max ? text.substring(0, max - 3) + "..." : text;
+}
+
+/**
+ * Format a duration in milliseconds as a compact human string.
+ * e.g. 45000 → "45s", 94000 → "1m 34s", 7380000 → "2h 3m"
+ * Sub-minute durations show seconds only; hour+ durations drop the seconds.
+ */
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+/**
+ * Whether a commit is currently being analyzed, based on its analysis timestamps.
+ * True when an analysis has started and either hasn't finished yet, or started
+ * more recently than the last finish (i.e. a fresh reanalysis is running).
+ */
+export function isBeingAnalyzed(
+  startedAnalysis?: string,
+  endedAnalysis?: string,
+): boolean {
+  return (
+    !!startedAnalysis &&
+    (!endedAnalysis || parseISO(startedAnalysis) > parseISO(endedAnalysis))
+  );
 }
 
 /**
@@ -510,6 +542,129 @@ export function printIssueDetail(
 }
 
 /**
+ * pickDeep paths for the JSON projection of a ConfiguredPattern. Shared by the
+ * `patterns` (list) and `pattern` (single info) commands so both emit the same
+ * shape. Mirrors the fields rendered by `printPatternCard`.
+ */
+export const PATTERN_JSON_FIELDS = [
+  "enabled",
+  "parameters",
+  "patternDefinition.id",
+  "patternDefinition.title",
+  "patternDefinition.severityLevel",
+  "patternDefinition.category",
+  "patternDefinition.subCategory",
+  "patternDefinition.languages",
+  "patternDefinition.tags",
+  "patternDefinition.enabled",
+  "patternDefinition.description",
+  "patternDefinition.rationale",
+  "patternDefinition.solution",
+  "enabledBy",
+];
+
+/**
+ * Header: enabled icon (☑️ enforced by a standard, ✅ enabled directly, dim ⬛
+ * disabled), title, id, "Recommended" tag, and an "Enforced by" line.
+ */
+/** Status icon: ☑️ standard-enforced, ✅ enabled directly, dim ⬛ disabled. */
+function patternIcon(enabled: boolean, enforcedByStandard: boolean): string {
+  if (!enabled) return ansis.dim("⬛");
+  return enforcedByStandard ? "☑️" : "✅";
+}
+
+function printPatternHeader(
+  cp: ConfiguredPattern,
+  enabled: boolean,
+  enforcedByStandard: boolean,
+): void {
+  const p = cp.patternDefinition;
+  const enabledIcon = patternIcon(enabled, enforcedByStandard);
+  const titleText = p.title ?? p.id;
+  const titleColored = enabled ? ansis.white(titleText) : ansis.dim(titleText);
+  const recommendedStr = p.enabled ? ` | ${ansis.magenta("Recommended")}` : "";
+
+  console.log(ansis.dim("─".repeat(40)));
+  console.log(
+    `${enabledIcon} ${titleColored} ${ansis.dim(`(${p.id})`)}${recommendedStr}`,
+  );
+
+  if (enforcedByStandard) {
+    const names = cp.enabledBy.map((s) => s.name).join(", ");
+    console.log(`   ${ansis.dim(`Enforced by: ${names}`)}`);
+  }
+}
+
+/** Metadata line (severity | category subcategory | languages | tags) + description. */
+function printPatternMeta(p: Pattern): void {
+  const meta: string[] = [colorSeverity(p.severityLevel)];
+  meta.push(p.category + (p.subCategory ? ` ${ansis.dim(p.subCategory)}` : ""));
+  if (p.languages && p.languages.length > 0) meta.push(p.languages.join(", "));
+  if (p.tags && p.tags.length > 0) meta.push(p.tags.join(", "));
+  console.log(`   ${meta.join(" | ")}`);
+
+  if (p.description) {
+    console.log(`   ${ansis.dim(p.description)}`);
+  }
+}
+
+/** "Why?" / "How to fix?" documentation lines. */
+function printPatternDocs(p: Pattern): void {
+  if (p.rationale) {
+    console.log();
+    console.log(`   ${ansis.white("Why?")} ${ansis.dim(p.rationale)}`);
+  }
+  if (p.solution) {
+    console.log(`   ${ansis.white("How to fix?")} ${ansis.dim(p.solution)}`);
+  }
+}
+
+/** Configured parameters — only shown when the pattern is enabled and has some. */
+function printPatternParams(cp: ConfiguredPattern): void {
+  if (!cp.enabled || !cp.parameters || cp.parameters.length === 0) return;
+  console.log();
+  console.log("   Parameters:");
+  for (const param of cp.parameters) {
+    console.log(`     - ${param.name} = ${param.value}`);
+  }
+}
+
+/**
+ * Print a single configured-pattern card. Shared by the `patterns` (list) and
+ * `pattern` (single info) commands so both render identically.
+ *
+ * (`enabled` is OR'd with `enabledBy` to work around an API quirk where a
+ * standard-enforced pattern can report `enabled: false`.)
+ */
+export function printPatternCard(cp: ConfiguredPattern): void {
+  const enforcedByStandard = !!(cp.enabledBy && cp.enabledBy.length > 0);
+  const enabled = cp.enabled || enforcedByStandard;
+  printPatternHeader(cp, enabled, enforcedByStandard);
+  printPatternMeta(cp.patternDefinition);
+  printPatternDocs(cp.patternDefinition);
+  printPatternParams(cp);
+}
+
+/**
+ * Whether a configured pattern is enforced by one or more coding standards.
+ * Such patterns can't be enabled/disabled/customized directly at the repo level.
+ */
+export function patternEnforcedBy(cp: ConfiguredPattern): string[] {
+  return cp.enabledBy?.map((s) => s.name) ?? [];
+}
+
+/**
+ * Shared messaging for tools whose patterns are managed by a local config file.
+ * Centralized so the `pattern` and `patterns` commands stay consistent.
+ */
+// Read paths (listing / showing a pattern): patterns can't be fetched.
+export const configFileNotice = (toolName: string): string =>
+  `${toolName} is using a local configuration file.`;
+// Write paths (enable/disable/customize): the update is refused.
+export const CONFIG_FILE_LOCKED_MESSAGE =
+  "Tool uses a local configuration file, can't be updated.";
+
+/**
  * Find a tool from a list by name using best-match logic:
  * 1. Exact match (case-insensitive, hyphens treated as spaces)
  * 2. Tool name starts with input + space ("jackson" → "Jackson Linter")
@@ -633,11 +788,7 @@ export function formatAnalysisStatus(opts: {
     return ansis.dim("Never");
   }
 
-  const isBeingAnalyzed =
-    !!startedAnalysis &&
-    (!endedAnalysis || parseISO(startedAnalysis) > parseISO(endedAnalysis));
-
-  if (isBeingAnalyzed) {
+  if (isBeingAnalyzed(startedAnalysis, endedAnalysis)) {
     if (endedAnalysis) {
       const finishedDate = formatFriendlyDate(endedAnalysis);
       return `Finished ${finishedDate} (${shortSha}) — ${ansis.blueBright("Reanalysis in progress...")}`;

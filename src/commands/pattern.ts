@@ -4,8 +4,16 @@ import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
+import { getOutputFormat, pickDeep, printJson } from "../utils/output";
 import { AnalysisService } from "../api/client/services/AnalysisService";
-import { findToolByName } from "../utils/formatting";
+import {
+  findToolByName,
+  printPatternCard,
+  patternEnforcedBy,
+  configFileNotice,
+  CONFIG_FILE_LOCKED_MESSAGE,
+  PATTERN_JSON_FIELDS,
+} from "../utils/formatting";
 import { ConfigureToolBody } from "../api/client/models/ConfigureToolBody";
 import { ConfigurePattern } from "../api/client/models/ConfigurePattern";
 
@@ -13,7 +21,9 @@ export function registerPatternCommand(program: Command) {
   program
     .command("pattern")
     .alias("pat")
-    .description("Enable, disable, or set parameters for a specific pattern")
+    .description(
+      "Show a pattern, or enable, disable, or set parameters for it",
+    )
     .argument("[provider]", "git provider (gh, gl, or bb) — auto-detected from git remote if omitted")
     .argument("[organization]", "organization name")
     .argument("[repository]", "repository name")
@@ -34,7 +44,8 @@ export function registerPatternCommand(program: Command) {
       "after",
       `
 Examples:
-  $ codacy-cloud-cli pattern eslint some-pattern-id --enable   # auto-detect from git remote
+  $ codacy-cloud-cli pattern eslint some-pattern-id              # show pattern info (auto-detect from git remote)
+  $ codacy-cloud-cli pattern gh my-org my-repo eslint some-pattern-id
   $ codacy-cloud-cli pattern gh my-org my-repo eslint some-pattern-id --enable
   $ codacy-cloud-cli pattern gh my-org my-repo eslint some-pattern-id --disable
   $ codacy-cloud-cli pattern gh my-org my-repo eslint some-pattern-id --parameter maxParams=3
@@ -59,15 +70,14 @@ Examples:
           );
         const [toolName, patternId] = trailingArgs;
         const opts = this.opts();
+        const format = getOutputFormat(this);
 
-        if (!opts.enable && !opts.disable && opts.parameter.length === 0) {
-          console.error(
-            ansis.red(
-              "Error: specify at least one of --enable, --disable, or --parameter.",
-            ),
-          );
-          process.exit(1);
-        }
+        // Modify mode = at least one action flag. With no flags we just show the
+        // pattern's information.
+        const isModify =
+          Boolean(opts.enable) ||
+          Boolean(opts.disable) ||
+          opts.parameter.length > 0;
 
         const spinner = ora(`Looking up tool "${toolName}"...`).start();
 
@@ -83,36 +93,82 @@ Examples:
           process.exit(1);
         }
 
-        // Determine enabled state
+        // When the tool is driven by a local configuration file, its patterns
+        // are overwritten and can't be shown or changed through the API.
+        if (tool.settings.usesConfigurationFile) {
+          if (isModify) {
+            spinner.fail(CONFIG_FILE_LOCKED_MESSAGE);
+            process.exit(1);
+          }
+          spinner.stop();
+          if (format === "json") {
+            printJson({ tool: tool.name, usesConfigurationFile: true });
+          } else {
+            console.log(ansis.yellow(configFileNotice(tool.name)));
+          }
+          return;
+        }
+
+        // There is no endpoint to fetch a single pattern at repo level, so we
+        // search by ID and keep only the exact match. This also yields the
+        // current enabled state and any coding-standard enforcement.
+        spinner.text = `Fetching pattern "${patternId}"...`;
+        const patternsResponse =
+          await AnalysisService.listRepositoryToolPatterns(
+            provider,
+            organization,
+            repository,
+            tool.uuid,
+            undefined, // languages
+            undefined, // categories
+            undefined, // severityLevels
+            undefined, // tags
+            patternId, // search by ID
+          );
+        const match = patternsResponse.data.find(
+          (cp) => cp.patternDefinition.id === patternId,
+        );
+        if (!match) {
+          spinner.fail(
+            `Pattern "${patternId}" not found for tool "${tool.name}".`,
+          );
+          process.exit(1);
+        }
+
+        // ── Info mode: no action flags → render the pattern card ────────────
+        if (!isModify) {
+          spinner.stop();
+          if (format === "json") {
+            printJson(pickDeep(match, PATTERN_JSON_FIELDS));
+          } else {
+            printPatternCard(match);
+            console.log(ansis.dim("─".repeat(40)));
+          }
+          return;
+        }
+
+        // ── Modify mode ─────────────────────────────────────────────────────
+        // Patterns enforced by a coding standard are managed there, not at the
+        // repository level, so they can't be changed here.
+        const enforcedBy = patternEnforcedBy(match);
+        if (enforcedBy.length > 0) {
+          const names = enforcedBy.join(", ");
+          const noun =
+            enforcedBy.length === 1 ? "coding standard" : "coding standards";
+          spinner.fail(
+            `Pattern enforced by ${names} ${noun}, can't be modified.`,
+          );
+          process.exit(1);
+        }
+
+        // Determine target enabled state. For parameters-only updates we keep
+        // the pattern's current state.
         let enabled: boolean;
         if (opts.enable) {
           enabled = true;
         } else if (opts.disable) {
           enabled = false;
         } else {
-          // Only parameters are being set — fetch current enabled state
-          spinner.text = `Fetching current state of pattern "${patternId}"...`;
-          const patternsResponse =
-            await AnalysisService.listRepositoryToolPatterns(
-              provider,
-              organization,
-              repository,
-              tool.uuid,
-              undefined, // languages
-              undefined, // categories
-              undefined, // severityLevels
-              undefined, // tags
-              patternId, // search by ID
-            );
-          const match = patternsResponse.data.find(
-            (cp) => cp.patternDefinition.id === patternId,
-          );
-          if (!match) {
-            spinner.fail(
-              `Pattern "${patternId}" not found for tool "${toolName}".`,
-            );
-            process.exit(1);
-          }
           enabled = match.enabled;
         }
 

@@ -25,6 +25,15 @@ import {
   formatPrIssues,
   formatAnalysisStatus,
 } from "../utils/formatting";
+import {
+  AnalysisStatus,
+  pollForAnalysis,
+  durationFromStatus,
+  snapshotFromOverview,
+  diffSnapshots,
+  renderReanalyzeReport,
+  reanalyzeJson,
+} from "../utils/reanalyze-wait";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { RepositoryService } from "../api/client/services/RepositoryService";
 import { CodingStandardsService } from "../api/client/services/CodingStandardsService";
@@ -222,6 +231,10 @@ export function registerRepositoryCommand(program: Command) {
     .option("-f, --follow", "follow this repository on Codacy")
     .option("-u, --unfollow", "unfollow this repository on Codacy")
     .option("-R, --reanalyze", "request reanalysis of the HEAD commit")
+    .option(
+      "-w, --reanalyze-and-wait",
+      "request reanalysis of the HEAD commit, wait for it to finish, then show what changed",
+    )
     .option("-L, --link-standard <id>", "link a coding standard to this repository (by standard ID)")
     .option("-K, --unlink-standard <id>", "unlink a coding standard from this repository (by standard ID)")
     .addHelpText(
@@ -236,6 +249,7 @@ Examples:
   $ codacy-cloud-cli repository gh my-org my-repo --follow
   $ codacy-cloud-cli repository gh my-org my-repo --unfollow
   $ codacy-cloud-cli repository gh my-org my-repo --reanalyze
+  $ codacy-cloud-cli repository gh my-org my-repo --reanalyze-and-wait
   $ codacy-cloud-cli repository gh my-org my-repo --link-standard 12345
   $ codacy-cloud-cli repository gh my-org my-repo --unlink-standard 12345`,
     )
@@ -314,6 +328,93 @@ Examples:
           );
           spinner.stop();
           console.log(`${ansis.green("✓")} Unfollowed ${ansis.bold(repository)}.`);
+          return;
+        }
+
+        // ── Action: reanalyze-and-wait ───────────────────────────────────
+        if (opts.reanalyzeAndWait) {
+          const format = getOutputFormat(this);
+          const spinner = ora("Preparing reanalysis...").start();
+          try {
+            // Resolve the HEAD commit to reanalyze + capture baseline issue counts.
+            const [commitsResponse, baselineOverview] = await Promise.all([
+              AnalysisService.listRepositoryCommits(
+                provider,
+                organization,
+                repository,
+                undefined,
+                undefined,
+                1,
+              ),
+              AnalysisService.issuesOverview(provider, organization, repository),
+            ]);
+            const headCommit = commitsResponse.data[0];
+            if (!headCommit) {
+              spinner.fail("No commits found in this repository.");
+              return;
+            }
+            const before = snapshotFromOverview(baselineOverview.data.counts);
+
+            // Trigger the reanalysis (t0 = now).
+            const triggeredAt = Date.now();
+            await RepositoryService.reanalyzeCommitById(
+              provider,
+              organization,
+              repository,
+              { commitUuid: headCommit.commit.sha },
+            );
+
+            // Poll the first commit's analysis timestamps until the new
+            // analysis (started after t0) starts and then finishes.
+            const getStatus = async (): Promise<AnalysisStatus> => {
+              const commits = await AnalysisService.listRepositoryCommits(
+                provider,
+                organization,
+                repository,
+                undefined,
+                undefined,
+                1,
+              );
+              const commit = commits.data[0]?.commit;
+              return {
+                startedAnalysis: commit?.startedAnalysis,
+                endedAnalysis: commit?.endedAnalysis,
+              };
+            };
+            const { status, timedOut } = await pollForAnalysis(getStatus, {
+              triggeredAt,
+              spinner,
+            });
+            if (timedOut) {
+              spinner.fail(
+                "Analysis didn't finish within 20 minutes. Re-run with --reanalyze-and-wait later, or check the latest status with `codacy repository`.",
+              );
+              return;
+            }
+
+            // Fetch fresh results and compare against the baseline.
+            spinner.text = "Analysis done. Fetching results to compare...";
+            const afterOverview = await AnalysisService.issuesOverview(
+              provider,
+              organization,
+              repository,
+            );
+            const after = snapshotFromOverview(afterOverview.data.counts);
+            const delta = diffSnapshots(before, after);
+            const durationMs =
+              durationFromStatus(status) ?? Date.now() - triggeredAt;
+
+            spinner.stop();
+            if (format === "json") {
+              printJson(reanalyzeJson(before, after, delta, durationMs));
+            } else {
+              renderReanalyzeReport(delta, durationMs);
+            }
+          } catch (waitErr) {
+            spinner.fail(
+              `Failed to reanalyze: ${waitErr instanceof Error ? waitErr.message : waitErr}`,
+            );
+          }
           return;
         }
 

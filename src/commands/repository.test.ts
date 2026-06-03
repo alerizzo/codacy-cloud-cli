@@ -4,6 +4,7 @@ import { registerRepositoryCommand } from "./repository";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { RepositoryService } from "../api/client/services/RepositoryService";
 import { CodingStandardsService } from "../api/client/services/CodingStandardsService";
+import { timers } from "../utils/reanalyze-wait";
 
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/RepositoryService");
@@ -799,6 +800,118 @@ describe("repository command", () => {
         "auto-org",
         "auto-repo",
       );
+    });
+  });
+
+  // ─── Reanalyze and wait ───────────────────────────────────────────────────
+
+  describe("--reanalyze-and-wait", () => {
+    beforeEach(() => {
+      vi.spyOn(timers, "sleep").mockResolvedValue(undefined);
+    });
+
+    function overview(errorTotal: number, secretTotal: number) {
+      return {
+        data: {
+          counts: {
+            categories: [{ name: "Security", total: secretTotal }],
+            levels: [
+              { name: "Error", total: errorTotal },
+              { name: "Warning", total: 11 },
+            ],
+            languages: [],
+            tags: [],
+            patterns: [
+              { id: "p.secret", title: "Hardcoded Secret", total: secretTotal },
+            ],
+            authors: [],
+            potentialFalsePositives: [],
+          },
+        },
+      };
+    }
+
+    // Old timestamps are before t0 (Date.now); "new" ones are far in the future
+    // so they're reliably more recent than the real trigger time.
+    const OLD_S = "2000-01-01T00:00:00Z";
+    const OLD_E = "2000-01-01T00:05:00Z";
+    const NEW_S = "2999-01-01T00:01:00Z";
+    const NEW_E = "2999-01-01T00:02:00Z"; // 60s after NEW_S → "1m 0s"
+
+    function commits(startedAnalysis?: string, endedAnalysis?: string) {
+      return {
+        data: [
+          { commit: { sha: "abc1234567890", startedAnalysis, endedAnalysis } },
+        ],
+      } as any;
+    }
+
+    it("triggers reanalysis, waits, and prints deltas", async () => {
+      vi.mocked(AnalysisService.listRepositoryCommits)
+        .mockResolvedValueOnce(commits(OLD_S, OLD_E)) // head sha
+        .mockResolvedValueOnce(commits(OLD_S, OLD_E)) // poll: waiting (before t0)
+        .mockResolvedValueOnce(commits(NEW_S, OLD_E)) // poll: in progress
+        .mockResolvedValueOnce(commits(NEW_S, NEW_E)); // poll: done
+      vi.mocked(AnalysisService.issuesOverview)
+        .mockResolvedValueOnce(overview(4, 8) as any) // baseline: 15 issues
+        .mockResolvedValueOnce(overview(6, 13) as any); // after: 17 issues
+      vi.mocked(RepositoryService.reanalyzeCommitById).mockResolvedValue(
+        undefined as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "repository", "gh", "test-org", "test-repo", "--reanalyze-and-wait",
+      ]);
+
+      expect(RepositoryService.reanalyzeCommitById).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", { commitUuid: "abc1234567890" },
+      );
+      const out = (console.log as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0])
+        .join("\n");
+      expect(out).toContain("Analysis finished in 1m 0s");
+      expect(out).toContain("Hardcoded Secret");
+      expect(out).toContain("In total: 15 → 17 issues");
+    });
+
+    it("fails when there are no commits to reanalyze", async () => {
+      vi.mocked(AnalysisService.listRepositoryCommits).mockResolvedValue({
+        data: [],
+      } as any);
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue(
+        overview(4, 8) as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "repository", "gh", "test-org", "test-repo", "--reanalyze-and-wait",
+      ]);
+
+      expect(RepositoryService.reanalyzeCommitById).not.toHaveBeenCalled();
+    });
+
+    it("emits structured JSON with --output json", async () => {
+      vi.mocked(AnalysisService.listRepositoryCommits)
+        .mockResolvedValueOnce(commits(OLD_S, OLD_E)) // head sha
+        .mockResolvedValueOnce(commits(NEW_S, NEW_E)); // poll: already done
+      vi.mocked(AnalysisService.issuesOverview)
+        .mockResolvedValueOnce(overview(4, 8) as any)
+        .mockResolvedValueOnce(overview(6, 13) as any);
+      vi.mocked(RepositoryService.reanalyzeCommitById).mockResolvedValue(
+        undefined as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "repository", "gh", "test-org", "test-repo",
+        "--reanalyze-and-wait", "--output", "json",
+      ]);
+
+      const calls = (console.log as ReturnType<typeof vi.fn>).mock.calls;
+      const parsed = JSON.parse(calls[calls.length - 1][0]);
+      expect(parsed.durationHuman).toBe("1m 0s");
+      expect(parsed.totals).toEqual({ before: 15, after: 17, net: 2 });
     });
   });
 });
