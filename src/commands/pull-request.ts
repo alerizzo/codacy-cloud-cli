@@ -28,6 +28,15 @@ import {
   formatAnalysisStatus,
   GateStatusMap,
 } from "../utils/formatting";
+import {
+  AnalysisStatus,
+  pollForAnalysis,
+  durationFromStatus,
+  snapshotFromPrIssues,
+  diffSnapshots,
+  renderReanalyzeReport,
+  reanalyzeJson,
+} from "../utils/reanalyze-wait";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { CoverageService } from "../api/client/services/CoverageService";
 import { ToolsService } from "../api/client/services/ToolsService";
@@ -692,6 +701,10 @@ export function registerPullRequestCommand(program: Command) {
       "-A, --reanalyze",
       "request reanalysis of the HEAD commit of this pull request",
     )
+    .option(
+      "-w, --reanalyze-and-wait",
+      "request reanalysis of this pull request, wait for it to finish, then show what changed",
+    )
     .addHelpText(
       "after",
       `
@@ -705,7 +718,8 @@ Examples:
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --ignore-issue 9901 --ignore-reason FalsePositive
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --ignore-all-false-positives
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --unignore-issue 9901
-  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --reanalyze`,
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --reanalyze
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --reanalyze-and-wait`,
     )
     .action(async function (
       this: Command,
@@ -728,6 +742,100 @@ Examples:
         if (isNaN(prNumber)) {
           console.error(ansis.red("Error: prNumber must be a number."));
           process.exit(1);
+        }
+
+        // --reanalyze-and-wait: trigger reanalysis, wait, then show deltas
+        if (this.opts().reanalyzeAndWait) {
+          const format = getOutputFormat(this);
+          const spinner = ora("Preparing reanalysis...").start();
+          try {
+            // Resolve the PR HEAD commit to reanalyze.
+            const prResponse = await AnalysisService.getRepositoryPullRequest(
+              provider,
+              organization,
+              repository,
+              prNumber,
+            );
+            const headSha = (prResponse as any).pullRequest?.headCommitSha;
+            if (!headSha) {
+              spinner.fail("No HEAD commit found for this pull request.");
+              return;
+            }
+
+            // Capture a baseline of the PR's new issues.
+            const before = snapshotFromPrIssues(
+              await fetchAllPrIssues(
+                provider,
+                organization,
+                repository,
+                prNumber,
+                false,
+              ),
+            );
+
+            // Trigger the reanalysis (t0 = now).
+            const triggeredAt = Date.now();
+            await RepositoryService.reanalyzeCommitById(
+              provider,
+              organization,
+              repository,
+              { commitUuid: headSha },
+            );
+
+            // Poll the PR's first commit analysis timestamps until the new
+            // analysis (started after t0) starts and then finishes.
+            const getStatus = async (): Promise<AnalysisStatus> => {
+              const commits = (await AnalysisService.getPullRequestCommits(
+                provider,
+                organization,
+                repository,
+                prNumber,
+                1,
+              )) as any;
+              const commit = commits.data?.[0]?.commit;
+              return {
+                startedAnalysis: commit?.startedAnalysis,
+                endedAnalysis: commit?.endedAnalysis,
+              };
+            };
+            const { status, timedOut } = await pollForAnalysis(getStatus, {
+              triggeredAt,
+              spinner,
+            });
+            if (timedOut) {
+              spinner.fail(
+                "Analysis didn't finish within 20 minutes. Re-run with --reanalyze-and-wait later, or check the latest status with `codacy pull-request`.",
+              );
+              return;
+            }
+
+            // Fetch fresh results and compare against the baseline.
+            spinner.text = "Analysis done. Fetching results to compare...";
+            const after = snapshotFromPrIssues(
+              await fetchAllPrIssues(
+                provider,
+                organization,
+                repository,
+                prNumber,
+                false,
+              ),
+            );
+            const delta = diffSnapshots(before, after);
+            const durationMs =
+              durationFromStatus(status) ?? Date.now() - triggeredAt;
+
+            spinner.stop();
+            if (format === "json") {
+              printJson(reanalyzeJson(before, after, delta, durationMs));
+            } else {
+              renderReanalyzeReport(delta, durationMs);
+            }
+          } catch (waitErr) {
+            spinner.fail(
+              `Failed to reanalyze: ${waitErr instanceof Error ? waitErr.message : waitErr}`,
+            );
+          }
+          return;
         }
 
         // --reanalyze: request reanalysis of the HEAD commit

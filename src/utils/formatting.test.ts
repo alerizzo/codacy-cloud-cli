@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { formatAnalysisStatus, resolveToolUuids } from "./formatting";
+import {
+  formatAnalysisStatus,
+  resolveToolUuids,
+  formatDuration,
+  isBeingAnalyzed,
+} from "./formatting";
 
 // Mock ansis to return raw text for easier testing
 vi.mock("ansis", () => ({
@@ -160,5 +165,48 @@ describe("resolveToolUuids", () => {
       "uuid-eslint",
     ]);
     expect(fetchTools).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("formatDuration", () => {
+  it("shows seconds only for sub-minute durations", () => {
+    expect(formatDuration(45_000)).toBe("45s");
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(999)).toBe("1s");
+  });
+
+  it("shows minutes and seconds", () => {
+    expect(formatDuration(94_000)).toBe("1m 34s");
+    expect(formatDuration(60_000)).toBe("1m 0s");
+  });
+
+  it("shows hours and minutes (dropping seconds)", () => {
+    expect(formatDuration(7_380_000)).toBe("2h 3m");
+  });
+
+  it("clamps negatives to 0s", () => {
+    expect(formatDuration(-5_000)).toBe("0s");
+  });
+});
+
+describe("isBeingAnalyzed", () => {
+  it("is true when started but never finished", () => {
+    expect(isBeingAnalyzed("2025-06-15T10:00:00Z", undefined)).toBe(true);
+  });
+
+  it("is true when started after the last finish (a fresh reanalysis)", () => {
+    expect(
+      isBeingAnalyzed("2025-06-15T10:10:00Z", "2025-06-15T10:05:00Z"),
+    ).toBe(true);
+  });
+
+  it("is false when finished after it started", () => {
+    expect(
+      isBeingAnalyzed("2025-06-15T10:00:00Z", "2025-06-15T10:05:00Z"),
+    ).toBe(false);
+  });
+
+  it("is false when never started", () => {
+    expect(isBeingAnalyzed(undefined, undefined)).toBe(false);
   });
 });

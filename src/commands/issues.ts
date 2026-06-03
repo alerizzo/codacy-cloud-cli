@@ -15,10 +15,12 @@ import {
   printSection,
   printIssueCard,
   resolveToolUuids,
+  formatCount,
 } from "../utils/formatting";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { Tool } from "../api/client/models/Tool";
+import { AnalysisTool } from "../api/client/models/AnalysisTool";
 import { CommitIssue } from "../api/client/models/CommitIssue";
 import { SeverityLevel } from "../api/client/models/SeverityLevel";
 import { SearchRepositoryIssuesBody } from "../api/client/models/SearchRepositoryIssuesBody";
@@ -27,6 +29,22 @@ import { PatternsCount } from "../api/client/models/PatternsCount";
 
 // API allows a maximum of 100 issue IDs per bulk-ignore call
 const BULK_BATCH_SIZE = 100;
+
+// A pattern is flagged as "noisy" (and suggested for disabling) when it dominates
+// the issue set: either it alone accounts for at least NOISE_SHARE of all issues,
+// or it has at least NOISE_AVG_MULTIPLE times the average issues-per-pattern.
+const NOISE_SHARE = 0.1;
+const NOISE_AVG_MULTIPLE = 3;
+// Cap how many disable suggestions we print, to keep the section actionable.
+const MAX_NOISE_SUGGESTIONS = 10;
+
+// Human-friendly labels for the API's false-positive threshold buckets.
+// `equalOrAboveThreshold` = FP probability >= threshold (a potential false
+// positive); `belowThreshold` = below threshold (treated as a real issue).
+const FALSE_POSITIVE_LABELS: Record<string, string> = {
+  belowThreshold: "Not a False Positive",
+  equalOrAboveThreshold: "Potential False Positive",
+};
 
 const SEVERITY_ORDER: Record<string, number> = {
   Error: 0,
@@ -162,7 +180,192 @@ function printOverview(counts: {
   printCountTable("Author", counts.authors);
   if (counts.authors.length > 0 && counts.potentialFalsePositives.length > 0)
     console.log();
-  printCountTable("False Positives", counts.potentialFalsePositives);
+  printCountTable(
+    "False Positives",
+    relabelFalsePositives(counts.potentialFalsePositives),
+  );
+}
+
+/** Map the API's threshold-bucket names to human-friendly false-positive labels. */
+function relabelFalsePositives(counts: Count[]): Count[] {
+  return counts.map((c) => ({
+    ...c,
+    name: FALSE_POSITIVE_LABELS[c.name] ?? c.name,
+  }));
+}
+
+/**
+ * Identify "noisy" patterns worth suggesting for disabling: a pattern is noisy
+ * when it accounts for at least NOISE_SHARE of all issues, or has at least
+ * NOISE_AVG_MULTIPLE times the average issues-per-pattern. Sorted by count desc.
+ */
+function detectNoisyPatterns(patterns: PatternsCount[]): PatternsCount[] {
+  if (patterns.length === 0) return [];
+  const total = patterns.reduce((sum, p) => sum + p.total, 0);
+  if (total === 0) return [];
+  const average = total / patterns.length;
+  const shareFloor = NOISE_SHARE * total;
+  const avgFloor = NOISE_AVG_MULTIPLE * average;
+  return patterns
+    .filter((p) => p.total >= shareFloor || p.total >= avgFloor)
+    .sort((a, b) => b.total - a.total);
+}
+
+/**
+ * Find the tool that owns a pattern by matching the pattern ID prefix against
+ * each tool's `prefix` (the field Codacy uses to keep pattern names unique).
+ * Longest matching prefix wins. Tools without a prefix can't be matched.
+ */
+function resolvePatternTool(
+  patternId: string,
+  tools: Tool[],
+): Tool | undefined {
+  let best: Tool | undefined;
+  let bestLen = 0;
+  for (const tool of tools) {
+    if (!tool.prefix) continue;
+    // The API prefix normally already carries the trailing underscore (e.g.
+    // "ESLint_"), but normalize to "<prefix>_" so we match either way.
+    const marker = tool.prefix.endsWith("_") ? tool.prefix : `${tool.prefix}_`;
+    if (patternId.startsWith(marker) && marker.length > bestLen) {
+      best = tool;
+      bestLen = marker.length;
+    }
+  }
+  return best;
+}
+
+interface NoiseSuggestion {
+  title: string;
+  total: number;
+  // Exactly one of these is set: `command` is a runnable `codacy pattern …
+  // --disable`; `action` is a manual step shown when the pattern can't be
+  // disabled through the CLI (config-file-driven tool, or coding-standard
+  // enforced).
+  command?: string;
+  action?: string;
+}
+
+/** Match a global tool to its repository-scoped tool by UUID, then by name. */
+function findRepoTool(
+  repoTools: AnalysisTool[],
+  tool: Tool,
+): AnalysisTool | undefined {
+  return (
+    repoTools.find((t) => t.uuid === tool.uuid) ??
+    repoTools.find((t) => t.name.toLowerCase() === tool.name.toLowerCase())
+  );
+}
+
+/**
+ * Fetch the coding standards (if any) that enforce a pattern, by searching the
+ * repo tool's patterns for an exact ID match and reading its `enabledBy`.
+ */
+async function fetchPatternStandards(
+  ctx: { provider: string; organization: string; repository: string },
+  toolUuid: string,
+  patternId: string,
+): Promise<string[]> {
+  const resp = await AnalysisService.listRepositoryToolPatterns(
+    ctx.provider,
+    ctx.organization,
+    ctx.repository,
+    toolUuid,
+    undefined, // languages
+    undefined, // categories
+    undefined, // severityLevels
+    undefined, // tags
+    patternId, // search by ID
+  );
+  const match = resp.data.find((cp) => cp.patternDefinition.id === patternId);
+  return match?.enabledBy?.map((s) => s.name) ?? [];
+}
+
+/**
+ * Build suggestions for noisy patterns. The owning tool is resolved by prefix;
+ * patterns whose tool can't be resolved (no/unknown prefix) are silently
+ * discarded. The suggested step depends on how the pattern is managed:
+ *  - tool driven by a local config file → manual "update your config file" step
+ *  - pattern enforced by a coding standard → manual "update the standard" step
+ *  - otherwise → a runnable `codacy pattern … --disable` command
+ */
+async function buildNoiseSuggestions(
+  noisy: PatternsCount[],
+  globalTools: Tool[],
+  repoTools: AnalysisTool[],
+  ctx: { provider: string; organization: string; repository: string },
+): Promise<NoiseSuggestion[]> {
+  const results = await Promise.all(
+    noisy.map(async (pattern): Promise<NoiseSuggestion | null> => {
+      const tool = resolvePatternTool(pattern.id, globalTools);
+      if (!tool) return null; // can't identify the tool — discard silently
+      // The `pattern` command matches the tool by name; hyphenate spaces per its convention.
+      const toolToken = tool.name.replace(/\s+/g, "-");
+      const repoTool = findRepoTool(repoTools, tool);
+
+      // A local configuration file overrides Codacy-side pattern config, so the
+      // pattern must be disabled in that file rather than via the CLI.
+      if (repoTool?.settings.usesConfigurationFile) {
+        return {
+          title: pattern.title,
+          total: pattern.total,
+          action: `Update your local ${tool.name} configuration file to disable the pattern`,
+        };
+      }
+
+      // A pattern enforced by a coding standard must be changed in the standard.
+      if (repoTool) {
+        const standards = await fetchPatternStandards(
+          ctx,
+          repoTool.uuid,
+          pattern.id,
+        );
+        if (standards.length > 0) {
+          return {
+            title: pattern.title,
+            total: pattern.total,
+            action: `Update ${standards.join(", ")} to disable the pattern`,
+          };
+        }
+      }
+
+      return {
+        title: pattern.title,
+        total: pattern.total,
+        command: `codacy pattern ${toolToken} ${pattern.id} --disable`,
+      };
+    }),
+  );
+  return results.filter((s): s is NoiseSuggestion => s !== null);
+}
+
+/** Print the "Suggested actions to reduce noise" section. No-op when empty. */
+function printNoiseSuggestions(suggestions: NoiseSuggestion[]): void {
+  if (suggestions.length === 0) return;
+
+  console.log(ansis.bold("\nSuggested actions to reduce noise\n"));
+
+  const shown = suggestions.slice(0, MAX_NOISE_SUGGESTIONS);
+  for (const s of shown) {
+    const label = s.total === 1 ? "issue" : "issues";
+    const reduction = ansis.green(`(-${formatCount(s.total)} ${label})`);
+    console.log(`  Disable ${ansis.bold(`"${s.title}"`)} ${reduction}`);
+    if (s.command) {
+      console.log(`  ${ansis.dim(">")} ${s.command}`);
+    } else if (s.action) {
+      console.log(`  ${ansis.dim("→")} ${s.action}`);
+    }
+    console.log();
+  }
+
+  const remaining = suggestions.length - shown.length;
+  if (remaining > 0) {
+    console.log(
+      ansis.dim(
+        `  … (${remaining} more noisy pattern${remaining === 1 ? "" : "s"})`,
+      ),
+    );
+  }
 }
 
 /**
@@ -414,11 +617,11 @@ Examples:
             repository,
             body,
           );
-          spinner.stop();
 
           const counts = overviewResponse.data.counts;
 
           if (format === "json") {
+            spinner.stop();
             printJson(
               pickDeep({ overview: counts }, [
                 "overview.categories",
@@ -433,6 +636,33 @@ Examples:
             return;
           }
 
+          // Resolve disable suggestions for noisy patterns. The extra tools fetch
+          // only happens when there's something to suggest, and stays under the
+          // spinner so the user sees progress rather than a stall.
+          const noisy = detectNoisyPatterns(counts.patterns);
+          let suggestions: NoiseSuggestion[] = [];
+          if (noisy.length > 0) {
+            spinner.text = "Checking for noisy patterns...";
+            // Global tools give each pattern's owning tool (via prefix); repo
+            // tools tell us which ones are config-file-driven and let us check
+            // coding-standard enforcement per pattern.
+            const [globalTools, repoToolsResponse] = await Promise.all([
+              fetchAllTools(),
+              AnalysisService.listRepositoryTools(
+                provider,
+                organization,
+                repository,
+              ),
+            ]);
+            suggestions = await buildNoiseSuggestions(
+              noisy,
+              globalTools,
+              repoToolsResponse.data,
+              { provider, organization, repository },
+            );
+          }
+          spinner.stop();
+
           printOverview({
             categories: counts.categories,
             levels: counts.levels,
@@ -442,6 +672,7 @@ Examples:
             authors: counts.authors,
             potentialFalsePositives: counts.potentialFalsePositives,
           });
+          printNoiseSuggestions(suggestions);
         } else {
           const pageSize = Math.min(limit, 100);
           let issues: CommitIssue[] = [];

@@ -48,7 +48,25 @@ const mockConfiguredPattern = {
   },
   enabled: false, // currently disabled
   parameters: [],
+  enabledBy: [],
 };
+
+// A tool whose patterns are driven by a local configuration file.
+const mockConfigFileTools = [
+  {
+    uuid: "uuid-eslint",
+    name: "ESLint",
+    isClientSide: false,
+    settings: {
+      isEnabled: true,
+      followsStandard: false,
+      isCustom: false,
+      hasConfigurationFile: true,
+      usesConfigurationFile: true,
+      enabledBy: [],
+    },
+  },
+];
 
 function getAllOutput(): string {
   return (console.log as ReturnType<typeof vi.fn>).mock.calls
@@ -100,8 +118,18 @@ describe("pattern command", () => {
       },
     );
 
-    // Should NOT fetch patterns when enable is specified
-    expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
+    // Patterns are fetched to check coding-standard enforcement before updating
+    expect(AnalysisService.listRepositoryToolPatterns).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      "test-repo",
+      "uuid-eslint",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "no-unused-vars",
+    );
 
     const output = getAllOutput();
     expect(output).toContain("enabled");
@@ -227,11 +255,69 @@ describe("pattern command", () => {
       },
     );
 
-    // Should NOT fetch patterns when enable is specified
-    expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
+    // Patterns are fetched to check coding-standard enforcement before updating
+    expect(AnalysisService.listRepositoryToolPatterns).toHaveBeenCalled();
   });
 
-  it("should exit with error when no option is specified", async () => {
+  it("should show pattern info when no action flag is specified", async () => {
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "pattern",
+      "gh",
+      "test-org",
+      "test-repo",
+      "eslint",
+      "no-unused-vars",
+    ]);
+
+    // Searches by ID, renders the card, and does not modify anything
+    expect(AnalysisService.listRepositoryToolPatterns).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      "test-repo",
+      "uuid-eslint",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "no-unused-vars",
+    );
+    expect(AnalysisService.configureTool).not.toHaveBeenCalled();
+
+    const output = getAllOutput();
+    expect(output).toContain("No Unused Variables");
+    expect(output).toContain("no-unused-vars");
+  });
+
+  it("should output pattern info as JSON when --output json is set", async () => {
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "--output",
+      "json",
+      "pattern",
+      "gh",
+      "test-org",
+      "test-repo",
+      "eslint",
+      "no-unused-vars",
+    ]);
+
+    expect(AnalysisService.configureTool).not.toHaveBeenCalled();
+    const output = getAllOutput();
+    const parsed = JSON.parse(output);
+    expect(parsed.patternDefinition.id).toBe("no-unused-vars");
+  });
+
+  it("should exit when pattern not found in info mode", async () => {
+    vi.mocked(AnalysisService.listRepositoryToolPatterns).mockResolvedValue({
+      data: [],
+      pagination: undefined,
+    } as any);
+
     const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit called");
     });
@@ -246,7 +332,7 @@ describe("pattern command", () => {
         "test-org",
         "test-repo",
         "eslint",
-        "no-unused-vars",
+        "nonexistent-pattern",
       ]),
     ).rejects.toThrow("process.exit called");
 
@@ -331,6 +417,116 @@ describe("pattern command", () => {
     ).rejects.toThrow("process.exit called");
 
     mockExit.mockRestore();
+  });
+
+  describe("configuration file guard", () => {
+    beforeEach(() => {
+      vi.mocked(AnalysisService.listRepositoryTools).mockResolvedValue({
+        data: mockConfigFileTools,
+        pagination: undefined,
+      } as any);
+    });
+
+    it("shows a notice and skips fetching patterns in info mode", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "pattern",
+        "gh",
+        "test-org",
+        "test-repo",
+        "eslint",
+        "no-unused-vars",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("ESLint is using a local configuration file.");
+      expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
+      expect(AnalysisService.configureTool).not.toHaveBeenCalled();
+    });
+
+    it("refuses to modify and exits 1", async () => {
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node",
+          "test",
+          "pattern",
+          "gh",
+          "test-org",
+          "test-repo",
+          "eslint",
+          "no-unused-vars",
+          "--disable",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(AnalysisService.configureTool).not.toHaveBeenCalled();
+      expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
+      mockExit.mockRestore();
+    });
+  });
+
+  describe("coding standard enforcement guard", () => {
+    beforeEach(() => {
+      vi.mocked(AnalysisService.listRepositoryToolPatterns).mockResolvedValue({
+        data: [
+          {
+            ...mockConfiguredPattern,
+            enabled: true,
+            enabledBy: [{ id: 1, name: "OWASP Top 10" }],
+          },
+        ],
+        pagination: undefined,
+      } as any);
+    });
+
+    it("refuses to modify an enforced pattern and exits 1", async () => {
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node",
+          "test",
+          "pattern",
+          "gh",
+          "test-org",
+          "test-repo",
+          "eslint",
+          "no-unused-vars",
+          "--disable",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(AnalysisService.configureTool).not.toHaveBeenCalled();
+      mockExit.mockRestore();
+    });
+
+    it("still shows an enforced pattern in info mode", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "pattern",
+        "gh",
+        "test-org",
+        "test-repo",
+        "eslint",
+        "no-unused-vars",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Enforced by: OWASP Top 10");
+      expect(AnalysisService.configureTool).not.toHaveBeenCalled();
+    });
   });
 
   describe("auto-detect from git remote", () => {

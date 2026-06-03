@@ -101,6 +101,13 @@ describe("issues command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.CODACY_API_TOKEN = "test-token";
+    // Default: no tools. Overrides per-test when a suggestion needs resolving.
+    vi.mocked(ToolsService.listTools).mockResolvedValue({ data: [] } as any);
+    // The overview noise path also reads repo tools; default to none so tests
+    // that don't exercise suggestions don't need to mock it.
+    vi.mocked(AnalysisService.listRepositoryTools).mockResolvedValue({
+      data: [],
+    } as any);
   });
 
   it("should fetch and display issues in card format", async () => {
@@ -194,8 +201,211 @@ describe("issues command", () => {
     expect(output).toContain("Author");
     expect(output).toContain("dev@example.com");
     expect(output).toContain("False Positives");
-    expect(output).toContain("equalOrAboveThreshold");
-    expect(output).toContain("belowThreshold");
+    // Raw API bucket names are relabeled to human-friendly terms.
+    expect(output).toContain("Potential False Positive");
+    expect(output).toContain("Not a False Positive");
+    expect(output).not.toContain("equalOrAboveThreshold");
+    expect(output).not.toContain("belowThreshold");
+  });
+
+  describe("overview noise suggestions", () => {
+    // One dominant pattern plus nine small ones: total 2950, avg 295.
+    // Bandit_B101 (2500) is both >=10% of total and >=3x average → noisy.
+    function noisyOverview() {
+      const patterns = [
+        { id: "Bandit_B101", title: "Use of assert detected", total: 2500 },
+      ];
+      for (let i = 0; i < 9; i++) {
+        patterns.push({ id: `Other_${i}`, title: `Pattern ${i}`, total: 50 });
+      }
+      return {
+        data: {
+          counts: {
+            categories: [{ name: "Security", total: 2950 }],
+            levels: [{ name: "Warning", total: 2950 }],
+            languages: [],
+            tags: [],
+            patterns,
+            authors: [],
+            potentialFalsePositives: [],
+          },
+        },
+      };
+    }
+
+    const banditTool = {
+      data: [
+        { uuid: "uuid-bandit", name: "Bandit", shortName: "bandit", prefix: "Bandit_" },
+      ],
+      pagination: undefined,
+    };
+
+    // Repo-scoped Bandit tool, matched to the global one by UUID. Helpers build
+    // variants for the config-file and coding-standard cases.
+    function banditRepoTool(overrides: Record<string, any> = {}) {
+      return {
+        data: [
+          {
+            uuid: "uuid-bandit",
+            name: "Bandit",
+            isClientSide: false,
+            settings: {
+              isEnabled: true,
+              followsStandard: false,
+              isCustom: false,
+              hasConfigurationFile: false,
+              usesConfigurationFile: false,
+              enabledBy: [],
+              ...overrides,
+            },
+          },
+        ],
+        pagination: undefined,
+      };
+    }
+
+    // A configured pattern for Bandit_B101 with the given enforcing standards.
+    function banditPattern(enabledBy: Array<{ id: number; name: string }> = []) {
+      return {
+        data: [
+          {
+            patternDefinition: { id: "Bandit_B101", title: "Use of assert detected" },
+            enabled: true,
+            parameters: [],
+            enabledBy,
+          },
+        ],
+        pagination: undefined,
+      };
+    }
+
+    it("suggests disabling a noisy pattern with a runnable command", async () => {
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue(
+        noisyOverview() as any,
+      );
+      vi.mocked(ToolsService.listTools).mockResolvedValue(banditTool as any);
+      vi.mocked(AnalysisService.listRepositoryTools).mockResolvedValue(
+        banditRepoTool() as any,
+      );
+      vi.mocked(AnalysisService.listRepositoryToolPatterns).mockResolvedValue(
+        banditPattern() as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
+      ]);
+
+      // Strip ANSI codes so bold/color don't break substring matches.
+      const output = getAllOutput().replace(new RegExp(String.fromCharCode(27) + "\[[0-9;]*m", "g"), "");
+      expect(output).toContain("Suggested actions to reduce noise");
+      expect(output).toContain('Disable "Use of assert detected"');
+      expect(output).toContain("(-2.5k issues)");
+      expect(output).toContain("codacy pattern Bandit Bandit_B101 --disable");
+      // The small patterns are listed in the table but never suggested.
+      expect(output).not.toContain('Disable "Pattern 0"');
+    });
+
+    it("suggests updating the config file when the tool uses one", async () => {
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue(
+        noisyOverview() as any,
+      );
+      vi.mocked(ToolsService.listTools).mockResolvedValue(banditTool as any);
+      vi.mocked(AnalysisService.listRepositoryTools).mockResolvedValue(
+        banditRepoTool({ usesConfigurationFile: true }) as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
+      ]);
+
+      const output = getAllOutput().replace(new RegExp(String.fromCharCode(27) + "\[[0-9;]*m", "g"), "");
+      expect(output).toContain("Suggested actions to reduce noise");
+      expect(output).toContain(
+        "Update your local Bandit configuration file to disable the pattern",
+      );
+      // No runnable command, and no need to look up the pattern's enforcement.
+      expect(output).not.toContain("codacy pattern");
+      expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
+    });
+
+    it("suggests updating the coding standard when the pattern is enforced", async () => {
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue(
+        noisyOverview() as any,
+      );
+      vi.mocked(ToolsService.listTools).mockResolvedValue(banditTool as any);
+      vi.mocked(AnalysisService.listRepositoryTools).mockResolvedValue(
+        banditRepoTool() as any,
+      );
+      vi.mocked(AnalysisService.listRepositoryToolPatterns).mockResolvedValue(
+        banditPattern([{ id: 1, name: "OWASP Top 10" }]) as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
+      ]);
+
+      const output = getAllOutput().replace(new RegExp(String.fromCharCode(27) + "\[[0-9;]*m", "g"), "");
+      expect(output).toContain("Update OWASP Top 10 to disable the pattern");
+      expect(output).not.toContain("codacy pattern");
+    });
+
+    it("discards suggestions whose owning tool can't be resolved", async () => {
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue(
+        noisyOverview() as any,
+      );
+      // No tool prefix matches "Bandit_" → suggestion silently dropped.
+      vi.mocked(ToolsService.listTools).mockResolvedValue({
+        data: [{ uuid: "u", name: "ESLint", shortName: "eslint", prefix: "ESLint_" }],
+        pagination: undefined,
+      } as any);
+      vi.mocked(AnalysisService.listRepositoryTools).mockResolvedValue({
+        data: [],
+        pagination: undefined,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Suggested actions to reduce noise");
+    });
+
+    it("shows no suggestions and skips the tools fetch when nothing is noisy", async () => {
+      // Twelve evenly-sized patterns: each is ~8.3% of total and equal to the
+      // average, so none crosses the >=10% or >=3x-average thresholds.
+      const patterns = Array.from({ length: 12 }, (_, i) => ({
+        id: `Tool_${i}`,
+        title: `Pattern ${i}`,
+        total: 100,
+      }));
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: {
+          counts: {
+            categories: [],
+            levels: [{ name: "Warning", total: 1200 }],
+            languages: [],
+            tags: [],
+            patterns,
+            authors: [],
+            potentialFalsePositives: [],
+          },
+        },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Suggested actions to reduce noise");
+      expect(ToolsService.listTools).not.toHaveBeenCalled();
+    });
   });
 
   it("should pass filter options to the API body", async () => {

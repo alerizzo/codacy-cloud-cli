@@ -38,6 +38,23 @@ const mockTools = [
   },
 ];
 
+// A tool whose patterns are driven by a local configuration file.
+const mockConfigFileTools = [
+  {
+    uuid: "uuid-eslint",
+    name: "ESLint",
+    isClientSide: false,
+    settings: {
+      isEnabled: true,
+      followsStandard: false,
+      isCustom: false,
+      hasConfigurationFile: true,
+      usesConfigurationFile: true,
+      enabledBy: [],
+    },
+  },
+];
+
 const mockPatterns = [
   {
     patternDefinition: {
@@ -724,6 +741,81 @@ describe("patterns command", () => {
       // The enabled filter should not be passed to bulk update
       // updateRepositoryToolPatterns has no enabled query param
       expect(call).toHaveLength(11);
+    });
+  });
+
+  describe("configuration file guard", () => {
+    beforeEach(() => {
+      vi.mocked(AnalysisService.listRepositoryTools).mockResolvedValue({
+        data: mockConfigFileTools,
+        pagination: undefined,
+      } as any);
+    });
+
+    it("shows a notice and skips fetching patterns in list mode", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "patterns",
+        "gh",
+        "test-org",
+        "test-repo",
+        "eslint",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("ESLint is using a local configuration file.");
+      expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
+    });
+
+    it("emits a JSON marker in list mode with --output json", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node",
+        "test",
+        "--output",
+        "json",
+        "patterns",
+        "gh",
+        "test-org",
+        "test-repo",
+        "eslint",
+      ]);
+
+      const parsed = JSON.parse(getAllOutput());
+      expect(parsed.usesConfigurationFile).toBe(true);
+      expect(parsed.tool).toBe("ESLint");
+      expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
+    });
+
+    it("refuses bulk update and exits 1", async () => {
+      vi.mocked(
+        AnalysisService.updateRepositoryToolPatterns,
+      ).mockResolvedValue(undefined as any);
+
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node",
+          "test",
+          "patterns",
+          "gh",
+          "test-org",
+          "test-repo",
+          "eslint",
+          "--disable-all",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(
+        AnalysisService.updateRepositoryToolPatterns,
+      ).not.toHaveBeenCalled();
+      mockExit.mockRestore();
     });
   });
 

@@ -23,7 +23,7 @@ _No pending tasks._ All commands implemented.
 | `tools` | `tls` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
 | `tool` | `tl` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
 | `patterns` | `pats` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
-| `pattern` | `pat` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
+| `pattern` | `pat` | ✅ Done (info mode + guards added) | [tools-and-patterns.md](commands/tools-and-patterns.md) |
 | `analysis` | N/A | ✅ Done | [analysis.md](commands/analysis.md) |
 | `json-output` | N/A | ✅ Done | [json-output.md](commands/json-output.md) |
 | `login` | N/A | ✅ Done | — |
@@ -65,3 +65,6 @@ _No pending tasks._ All commands implemented.
 | 2026-03-05 | JSON output filtering with `pickDeep` across all commands: `info`, `repositories`, `repository`, `pull-request`, `issues`, `issue`, `findings`, `finding`, `tools`, `patterns`; documented pattern in `src/commands/CLAUDE.md` |
 | 2026-03-12 | `patterns --enable-all` / `--disable-all` bulk update with filter support (6 new tests, 196 total) |
 | 2026-03-12 | `login` and `logout` commands: encrypted token storage in `~/.codacy/credentials`, masked interactive prompt, `--token` flag for non-interactive use, token resolution chain (env var → stored credentials); `checkApiToken()` updated to set `OpenAPI.HEADERS` dynamically (9 new tests, 219 total) |
+| 2026-06-02 | `--reanalyze-and-wait` (`-w`) blocking variant for `repository` and `pull-request`: triggers reanalysis, polls to completion (10s interval, 20min cap), then prints issue deltas by pattern/severity/category. New `src/utils/reanalyze-wait.ts` + `formatDuration`/`isBeingAnalyzed` helpers (26 new tests, 356 total) |
+| 2026-06-02 | `issues --overview` improvements: relabel False Positives buckets (`belowThreshold`/`equalOrAboveThreshold` → "Not a False Positive"/"Potential False Positive"), and a "Suggested actions to reduce noise" section that flags noisy patterns (≥10% of issues or ≥3× the average) with a runnable `codacy pattern … --disable` command, resolving the tool via its `prefix` (3 new tests, 360 total) |
+| 2026-06-02 | Pattern config-file & coding-standard awareness: new `pattern <tool> <id>` **info mode** (same card as `patterns`); `pattern`/`patterns` skip listing and refuse updates when a tool uses a local config file; `pattern` refuses to modify coding-standard-enforced patterns; `issues --overview` noise suggestions now render a manual "update your config file / coding standard" step instead of a command when a pattern can't be disabled via CLI. `printPatternCard`/`PATTERN_JSON_FIELDS` moved to `utils/formatting.ts` (11 new tests, 371 total) |

@@ -19,8 +19,11 @@ codacy is gh my-org my-repo --output json
 
 - [`searchRepositoryIssues`](https://api.codacy.com/api/api-docs#searchrepositoryissues) — `AnalysisService.searchRepositoryIssues(provider, org, repo, cursor, limit, body)`
 - [`issuesOverview`](https://api.codacy.com/api/api-docs#issuesoverview) — `AnalysisService.issuesOverview(provider, org, repo, body)` (only when `--overview` is given)
+- [`listTools`](https://api.codacy.com/api/api-docs#listtools) — `ToolsService.listTools(cursor, limit)` (only when `--overview` surfaces noisy patterns, to map each pattern's `prefix` to its owning tool)
+- [`listRepositoryTools`](https://api.codacy.com/api/api-docs#listrepositorytools) — `AnalysisService.listRepositoryTools(provider, org, repo)` (only when `--overview` surfaces noisy patterns, to detect config-file-driven tools)
+- [`listRepositoryToolPatterns`](https://api.codacy.com/api/api-docs#listrepositorytoolpatterns) — `search=<patternId>` (only for noisy patterns on non-config-file tools, to detect coding-standard enforcement)
 
-Both accept the same `SearchRepositoryIssuesBody` for filtering.
+`searchRepositoryIssues` and `issuesOverview` accept the same `SearchRepositoryIssuesBody` for filtering.
 
 ## Options
 
@@ -66,8 +69,46 @@ Shows pagination warning if more results exist.
 
 ### Overview mode (`--overview`)
 
-Six count tables sorted descending by count: Category, Severity, Language, Tag, Pattern, Author.
+Seven count tables sorted descending by count: Category, Severity, Language, Tag,
+Pattern, Author, and False Positives.
+
+The **False Positives** table relabels the API's raw bucket names for readability:
+`belowThreshold` → "Not a False Positive", `equalOrAboveThreshold` → "Potential
+False Positive" (the bucket is keyed on FP probability vs. the configured
+threshold, so at/above threshold = a potential false positive).
+
+After the tables, a **"Suggested actions to reduce noise"** section lists patterns
+worth disabling. A pattern is "noisy" when it accounts for **≥10% of all issues**
+shown, **or** has **≥3× the average** issues-per-pattern. The owning tool is
+resolved by matching the pattern ID against each tool's `prefix` (longest match
+wins); patterns whose tool can't be resolved (no/unknown prefix) are dropped
+silently. The list is capped at 10 with a "… (N more)" note.
+
+The suggested step depends on **how the pattern is managed**, since not every
+pattern can be disabled through the CLI:
+
+```
+Suggested actions to reduce noise
+
+  Disable "Use of assert detected" (-2.5k issues)
+  > codacy pattern Bandit Bandit_B101 --disable
+```
+
+- **Default** — a runnable `> codacy pattern <tool> <patternId> --disable` command.
+- **Tool uses a local configuration file** — no command; instead
+  `→ Update your local <tool> configuration file to disable the pattern`.
+- **Pattern enforced by a coding standard** — no command; instead
+  `→ Update <standard name(s)> to disable the pattern`.
+
+To classify each noisy pattern, the command additionally fetches the repository
+tools (`listRepositoryTools`, for `usesConfigurationFile` and the repo tool
+UUID) and, for non-config-file tools, the pattern's `enabledBy` via
+`listRepositoryToolPatterns` (`search=<patternId>`, one call per noisy pattern).
+A config file takes precedence over coding-standard enforcement. These extra
+calls only run when at least one noisy pattern exists.
+
+`--output json` is unaffected (raw counts only — no relabeling or suggestions).
 
 ## Tests
 
-File: `src/commands/issues.test.ts` — 39 tests.
+File: `src/commands/issues.test.ts` — 46 tests.

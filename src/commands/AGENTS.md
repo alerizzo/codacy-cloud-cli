@@ -106,6 +106,8 @@ Instead of a dedicated "Visibility" column (wastes horizontal space), public rep
   - **Issues Overview**: three count tables — by category, severity level, and language — sorted descending by count within each group
 - Shows pagination warning for pull requests if more exist
 - JSON output bundles all three API responses into a single object
+- **`--reanalyze` mode** (`-R`): fetches HEAD commit SHA, calls `RepositoryService.reanalyzeCommitById`; early return
+- **`--reanalyze-and-wait` mode** (`-w`): blocking variant — see "Reanalyze and wait" below. Baseline comes from `issuesOverview`; polling reads the repo's first commit via `listRepositoryCommits(limit=1)` analysis timestamps
 
 ## Shared Formatting Utilities (`utils/formatting.ts`)
 
@@ -119,6 +121,61 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
 - `formatStandards(pr)` — ✓/✗/- from quality + coverage `isUpToStandards`
 - `formatPrCoverage(pr, passing)` — diffCoverage% (+/-deltaCoverage%)
 - `formatPrIssues(pr, passing)` — +newIssues (colored by gate) / -fixedIssues (always gray)
+
+Pattern helpers shared between `patterns.ts` (list) and `pattern.ts` (single info):
+- `printPatternCard(cp)` — the configured-pattern card (icons, enforced-by line, metadata, why/how, parameters)
+- `PATTERN_JSON_FIELDS` — `pickDeep` paths for the JSON projection of a `ConfiguredPattern`
+- `patternEnforcedBy(cp)` — coding-standard names from `cp.enabledBy` (empty = not enforced)
+
+## pattern / patterns commands — config-file & coding-standard guards
+
+Patterns can be unmodifiable for two reasons, surfaced consistently across
+`pattern`, `patterns`, and the `issues --overview` noise suggestions:
+
+- **Local configuration file** — `tool.settings.usesConfigurationFile` (from
+  `listRepositoryTools`). The tool's patterns are overwritten by the file, so
+  the API can't list or change them.
+- **Coding-standard enforcement** — a `ConfiguredPattern.enabledBy` array with
+  entries. The pattern is managed in the standard, not at repo level.
+
+There is no single-pattern endpoint, so a pattern is looked up via
+`listRepositoryToolPatterns(search=<patternId>)` filtered to the **exact** ID
+match. Modify-mode refusals (`pattern --enable/--disable/--parameter`, and
+`patterns --enable-all/--disable-all`) print the reason and `process.exit(1)`;
+info/list displays print a notice and exit 0.
+
+## Reanalyze and wait (`utils/reanalyze-wait.ts`)
+
+Shared by the `repository` and `pull-request` `--reanalyze-and-wait` (`-w`) modes.
+Keeps the two command handlers thin: they only supply the API-specific callbacks
+(get HEAD SHA, fetch baseline/after snapshot, `getStatus`).
+
+- **Snapshots**: `IssueSnapshot { total, bySeverity, byCategory, byPattern }`.
+  `snapshotFromOverview()` (repo) builds independent dimension counts and pattern
+  buckets with **no** category/severity. `snapshotFromPrIssues()` (PR) tallies the
+  same dimensions from the raw issue list and **annotates** each pattern bucket
+  with its category + severity.
+- **`diffSnapshots(before, after)`**: signed **net** deltas per dimension (drops
+  unchanged buckets). Severity sorted Critical→Minor; category/pattern sorted by
+  |delta|. The overview can't decompose net change into added-vs-removed, so the
+  report shows net deltas, not a literal "new/resolved" split or a cross-tab.
+- **`pollForAnalysis(getStatus, opts)`**: two-phase loop — wait for a new analysis
+  to start (or detect it already finished), then wait for it to finish. `getStatus`
+  returns the first commit's `{ startedAnalysis, endedAnalysis }` (from the `/commits`
+  endpoint). In-progress = `startedAnalysis` more recent than both `endedAnalysis`
+  and `triggeredAt` (t0); done = `startedAnalysis` after t0 and `endedAnalysis` ≥
+  `startedAnalysis` (helpers `isAnalysisInProgress`/`isAnalysisDone`). Comparing to
+  t0 ensures we track *our* analysis, not a stale one. Returns `{ status, timedOut }`.
+  Defaults: `POLL_INTERVAL_MS=10s`, `MAX_WAIT_MS=20min`.
+- **`timers.sleep`**: polling delay wrapped in an exported object so tests stub it
+  (`vi.spyOn(timers, "sleep").mockResolvedValue()`) for instant polling. Drive the
+  poll loop in command tests with sequential `mockResolvedValueOnce` status values;
+  use the optional `now` injection in `pollForAnalysis` to unit-test the timeout.
+- **Rendering**: `renderReanalyzeReport(delta, durationMs)` prints the
+  `Analysis finished in <duration>` headline + By pattern / By severity /
+  By category lists (pattern rows soft-capped at `PATTERN_LIMIT=20`) + an
+  `In total: before → after (net ±N)` line. `reanalyzeJson()` is the `--output json`
+  payload. `durationFromStatus()` derives the duration from commit timestamps.
 
 ## issue command (`issue.ts`)
 
@@ -135,7 +192,9 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
 
 - Takes `<provider>`, `<organization>`, and `<repository>` as required arguments
 - **List mode** (default): card-style format sorted by severity (Error > High > Warning > Info)
-- **Overview mode** (`-O, --overview`): six count tables — Category, Severity, Language, Tag, Pattern, Author
+- **Overview mode** (`-O, --overview`): seven count tables — Category, Severity, Language, Tag, Pattern, Author, False Positives
+  - The False Positives table relabels the API's raw bucket names via `FALSE_POSITIVE_LABELS`: `belowThreshold` → "Not a False Positive", `equalOrAboveThreshold` → "Potential False Positive" (the threshold is on FP probability, so at/above = potential FP — matching `printIssueCard`)
+  - **Noise suggestions**: after the tables, `detectNoisyPatterns()` flags patterns that account for ≥10% of all issues (`NOISE_SHARE`) **or** have ≥3× the average issues-per-pattern (`NOISE_AVG_MULTIPLE`), sorted by count desc. For each, `resolvePatternTool()` maps the pattern ID to its owning tool by matching `Tool.prefix` (e.g. `Bandit_B101` → prefix `Bandit_`; longest match wins) against the global tool list (`fetchAllTools()` / `ToolsService.listTools`). Resolved ones print a `> codacy pattern <tool> <patternId> --disable` line under "Suggested actions to reduce noise". Patterns whose tool can't be resolved (no/unmatched prefix) are **silently discarded**. The tools fetch only happens when noisy patterns exist; JSON output is unaffected (raw counts only)
 - **Filters**: `--branch`, `--patterns`, `--tools`, `--severities`, `--categories`, `--languages`, `--tags`, `--authors`, `--limit`
 - **`--false-positives [value]`** (`-F`): tri-state filter — `true` (default when flag present) sends `onlyPotentialFalsePositives: true`, `false` sends `onlyPotentialFalsePositives: false`, omitted sends nothing
 - **`--ignore` mode** (`-I`): fetches all issues matching current filters (all pages), then calls `AnalysisService.bulkIgnoreIssues` in batches of 100
@@ -185,6 +244,7 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
 - **`--ignore-all-false-positives` mode** (`-F`): fetches all potential false positive issues (onlyPotential=true, paginated), ignores them all in parallel with hardcoded reason `FalsePositive`; supports `-m/--ignore-comment`
 - **`--unignore-issue <id>` mode** (`-U`): same lookup as `--ignore-issue`, calls `updateIssueState` with `{ ignored: false }`
 - **`--reanalyze` mode** (`-A`): fetches PR data to get `headCommitSha`, calls `RepositoryService.reanalyzeCommitById`; early return
+- **`--reanalyze-and-wait` mode** (`-w`): blocking variant — see "Reanalyze and wait" below. Baseline comes from paging `listPullRequestIssues(status="new")`; polling reads the PR's first commit via `getPullRequestCommits(limit=1)` analysis timestamps
 - **Analysis status in About**: replaced "Head Commit" with "Analysis" row using `formatAnalysisStatus()` from `utils/formatting.ts`; fetches `getPullRequestCommits(limit=1)` and `listCoverageReports(limit=1)` in parallel with existing calls
 
 ## JSON Output Filtering (`pickDeep`)
