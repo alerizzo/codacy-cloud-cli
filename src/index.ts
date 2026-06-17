@@ -18,7 +18,7 @@ import { registerLogoutCommand } from "./commands/logout";
 
 const program = new Command();
 
-OpenAPI.BASE = "https://app.codacy.com/api/v3";
+OpenAPI.BASE = (process.env.CODACY_API_BASE_URL || "https://app.codacy.com").replace(/\/$/, "") + "/api/v3";
 OpenAPI.HEADERS = {
   "api-token": process.env.CODACY_API_TOKEN || "",
   "X-Codacy-Origin": "cli-cloud-tool",
