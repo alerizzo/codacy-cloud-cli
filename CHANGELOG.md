@@ -1,5 +1,11 @@
 # @codacy/codacy-cloud-cli
 
+## 1.2.1
+
+### Patch Changes
+
+- [#14](https://github.com/codacy/codacy-cloud-cli/pull/14) [`ca896df`](https://github.com/codacy/codacy-cloud-cli/commit/ca896dfb7da127454fc042e63169ce05e2e11130) Thanks [@pedrobpereira](https://github.com/pedrobpereira)! - Adds possibility of using the cli againsta other environments
+
 ## 1.2.0
 
 ### Minor Changes
