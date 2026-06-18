@@ -1,5 +1,11 @@
 # @codacy/codacy-cloud-cli
 
+## 1.3.0
+
+### Minor Changes
+
+- [#16](https://github.com/codacy/codacy-cloud-cli/pull/16) [`8f86866`](https://github.com/codacy/codacy-cloud-cli/commit/8f86866ac41bf45dfe5d5be0593d180e95f99919) Thanks [@manufacturist](https://github.com/manufacturist)! - `codacy repo --output json` now includes a `fileCount` field on the repository object, plucked from `coverage.numberTotalFiles` on the existing `getRepositoryWithAnalysis` response. The field is present even on repos without coverage data, so no extra API call is needed. Lets consumers (e.g. the `configure-codacy-cloud` skill) read repo size without a separate roundtrip.
+
 ## 1.2.1
 
 ### Patch Changes
