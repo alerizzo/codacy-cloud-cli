@@ -527,7 +527,10 @@ Examples:
 
         if (format === "json") {
           printJson(pickDeep({
-            repository: data,
+            repository: {
+              ...data,
+              fileCount: data.coverage?.numberTotalFiles,
+            },
             pullRequests,
             issuesOverview: issuesCounts,
           }, [
@@ -549,6 +552,7 @@ Examples:
             // Metrics
             "repository.issuesCount",
             "repository.loc",
+            "repository.fileCount",
             "repository.coverage.coveragePercentage",
             "repository.complexFilesPercentage",
             "repository.duplicationPercentage",

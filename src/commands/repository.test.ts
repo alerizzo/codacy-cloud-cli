@@ -86,7 +86,7 @@ const mockRepoData = {
     addedState: "Added",
     gatePolicyName: "Codacy recommended",
   },
-  coverage: { coveragePercentage: 78 },
+  coverage: { coveragePercentage: 78, numberTotalFiles: 83 },
   goals: {
     maxComplexFilesPercentage: 25,
     maxDuplicatedFilesPercentage: 10,
@@ -250,6 +250,36 @@ describe("repository command", () => {
     expect(console.log).toHaveBeenCalledWith(
       expect.stringContaining('"name": "test-repo"'),
     );
+
+    const jsonCall = (console.log as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => typeof c[0] === "string" && c[0].startsWith("{"),
+    );
+    const parsed = JSON.parse(jsonCall![0]);
+    expect(parsed.repository.fileCount).toBe(83);
+  });
+
+  it("omits fileCount from JSON when coverage.numberTotalFiles is absent", async () => {
+    vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+      data: { ...mockRepoData, coverage: {} } as any,
+    });
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [],
+    });
+    vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+      data: { counts: mockIssuesCounts },
+    });
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "--output", "json",
+      "repository", "gh", "test-org", "test-repo",
+    ]);
+
+    const jsonCall = (console.log as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => typeof c[0] === "string" && c[0].startsWith("{"),
+    );
+    const parsed = JSON.parse(jsonCall![0]);
+    expect(parsed.repository.fileCount).toBeUndefined();
   });
 
   it("should handle repository with no PRs and no issues", async () => {

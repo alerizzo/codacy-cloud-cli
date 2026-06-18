@@ -105,7 +105,7 @@ Instead of a dedicated "Visibility" column (wastes horizontal space), public rep
       - Green if gate passes, red if gate fails; no coloring if no matching gate exists
   - **Issues Overview**: three count tables — by category, severity level, and language — sorted descending by count within each group
 - Shows pagination warning for pull requests if more exist
-- JSON output bundles all three API responses into a single object
+- JSON output bundles all three API responses into a single object, plus a `repository.fileCount` field plucked from `data.coverage.numberTotalFiles` (present on the existing `getRepositoryWithAnalysis` response even when the repo has no coverage data — no extra API call). Omitted when that field is absent
 - **`--reanalyze` mode** (`-R`): fetches HEAD commit SHA, calls `RepositoryService.reanalyzeCommitById`; early return
 - **`--reanalyze-and-wait` mode** (`-w`): blocking variant — see "Reanalyze and wait" below. Baseline comes from `issuesOverview`; polling reads the repo's first commit via `listRepositoryCommits(limit=1)` analysis timestamps
 
