@@ -38,10 +38,6 @@ function setupDefaultMocks() {
   vi.mocked(RepositoryService.listCoverageReports).mockResolvedValue({
     data: { hasCoverageOverview: false },
   } as any);
-  vi.mocked(AnalysisService.listCommitFiles).mockResolvedValue({
-    pagination: { cursor: "1", limit: 1, total: 83 },
-    data: [],
-  } as any);
 }
 
 function createProgram(): Command {
@@ -90,7 +86,7 @@ const mockRepoData = {
     addedState: "Added",
     gatePolicyName: "Codacy recommended",
   },
-  coverage: { coveragePercentage: 78 },
+  coverage: { coveragePercentage: 78, numberTotalFiles: 83 },
   goals: {
     maxComplexFilesPercentage: 25,
     maxDuplicatedFilesPercentage: 10,
@@ -260,21 +256,11 @@ describe("repository command", () => {
     );
     const parsed = JSON.parse(jsonCall![0]);
     expect(parsed.repository.fileCount).toBe(83);
-    expect(AnalysisService.listCommitFiles).toHaveBeenCalledWith(
-      "gh",
-      "test-org",
-      "test-repo",
-      "abc1234567890",
-      undefined,
-      undefined,
-      undefined,
-      1,
-    );
   });
 
-  it("omits fileCount from JSON when no analysed commit exists", async () => {
+  it("omits fileCount from JSON when coverage.numberTotalFiles is absent", async () => {
     vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
-      data: { ...mockRepoData, lastAnalysedCommit: undefined } as any,
+      data: { ...mockRepoData, coverage: {} } as any,
     });
     vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
       data: [],
@@ -282,34 +268,6 @@ describe("repository command", () => {
     vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
       data: { counts: mockIssuesCounts },
     });
-
-    const program = createProgram();
-    await program.parseAsync([
-      "node", "test", "--output", "json",
-      "repository", "gh", "test-org", "test-repo",
-    ]);
-
-    expect(AnalysisService.listCommitFiles).not.toHaveBeenCalled();
-    const jsonCall = (console.log as ReturnType<typeof vi.fn>).mock.calls.find(
-      (c) => typeof c[0] === "string" && c[0].startsWith("{"),
-    );
-    const parsed = JSON.parse(jsonCall![0]);
-    expect(parsed.repository.fileCount).toBeUndefined();
-  });
-
-  it("leaves fileCount undefined when listCommitFiles fails", async () => {
-    vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
-      data: mockRepoData as any,
-    });
-    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
-      data: [],
-    });
-    vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
-      data: { counts: mockIssuesCounts },
-    });
-    vi.mocked(AnalysisService.listCommitFiles).mockRejectedValueOnce(
-      new Error("boom"),
-    );
 
     const program = createProgram();
     await program.parseAsync([
