@@ -526,8 +526,28 @@ Examples:
         const hasCoverageData = data.coverage?.coveragePercentage !== undefined;
 
         if (format === "json") {
+          let fileCount: number | undefined;
+          const analysedSha = data.lastAnalysedCommit?.sha;
+          if (analysedSha) {
+            try {
+              const filesResponse = await AnalysisService.listCommitFiles(
+                provider,
+                organization,
+                repository,
+                analysedSha,
+                undefined,
+                undefined,
+                undefined,
+                1,
+              );
+              fileCount = (filesResponse as any).pagination?.total;
+            } catch {
+              // file count is best-effort — leave undefined on failure
+            }
+          }
+
           printJson(pickDeep({
-            repository: data,
+            repository: { ...data, fileCount },
             pullRequests,
             issuesOverview: issuesCounts,
           }, [
@@ -549,6 +569,7 @@ Examples:
             // Metrics
             "repository.issuesCount",
             "repository.loc",
+            "repository.fileCount",
             "repository.coverage.coveragePercentage",
             "repository.complexFilesPercentage",
             "repository.duplicationPercentage",
