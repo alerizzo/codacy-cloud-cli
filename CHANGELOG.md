@@ -1,5 +1,11 @@
 # @codacy/codacy-cloud-cli
 
+## 1.3.1
+
+### Patch Changes
+
+- [#18](https://github.com/codacy/codacy-cloud-cli/pull/18) [`7b09b5b`](https://github.com/codacy/codacy-cloud-cli/commit/7b09b5ba254f7cd7f46a86bd594352e8d3751eb9) Thanks [@manufacturist](https://github.com/manufacturist)! - Fix `--version` flag reporting hardcoded `1.0.0` instead of the actual package version. The CLI now reads the version dynamically from `package.json` at runtime via `require`, so the reported version stays in sync with every release automatically.
+
 ## 1.3.0
 
 ### Minor Changes
