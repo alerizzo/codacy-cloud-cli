@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { OpenAPI } from "./api/client/core/OpenAPI";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { version } = require("../package.json") as { version: string };
 import { registerInfoCommand } from "./commands/info";
 import { registerRepositoriesCommand } from "./commands/repositories";
 import { registerRepositoryCommand } from "./commands/repository";
@@ -27,7 +29,7 @@ OpenAPI.HEADERS = {
 program
   .name("codacy-cloud-cli")
   .description("A CLI tool to interact with the Codacy API")
-  .version("1.0.0")
+  .version(version)
   .option("-o, --output <format>", "output format (table or json)", "table");
 
 registerInfoCommand(program);
