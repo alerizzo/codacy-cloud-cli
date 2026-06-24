@@ -121,12 +121,29 @@ function dependencyChainBody(chain: string[], fixedVersion?: string[]): string {
 }
 
 /**
+ * Format the "affected → fixed" version segment shown on a finding's status line
+ * for SCA findings that have no dependency chains. Returns null when there is no
+ * affected version. `includeUpdatePrefix` prepends "Update " (the findings list
+ * uses it; the finding detail does not).
+ */
+export function formatVersionSegment(
+  affectedVersion?: string,
+  fixedVersion?: string[],
+  options?: { includeUpdatePrefix?: boolean },
+): string | null {
+  if (!affectedVersion) return null;
+  const fixed = fixedVersion?.length ? ` → ${fixedVersion.join(", ")}` : "";
+  const prefix = options?.includeUpdatePrefix ? "Update " : "";
+  return `${prefix}${affectedVersion}${fixed}`;
+}
+
+/**
  * One-line dependency summary for the findings list: the first chain prefixed
  * with its Direct/Transitive label, plus "... and N more" when there are extra
  * chains. Returns null when there are no chains.
  */
 export function formatDependencyChainsLine(
-  chains: string[][],
+  chains?: string[][],
   fixedVersion?: string[],
 ): string | null {
   if (!chains?.length) return null;
@@ -143,7 +160,7 @@ export function formatDependencyChainsLine(
  * indented so the "-" aligns under it. Returns null when there are no chains.
  */
 export function formatDependencyChainsBlock(
-  chains: string[][],
+  chains?: string[][],
   fixedVersion?: string[],
 ): string | null {
   if (!chains?.length) return null;

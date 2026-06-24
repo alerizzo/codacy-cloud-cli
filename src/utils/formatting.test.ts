@@ -4,6 +4,7 @@ import {
   resolveToolUuids,
   formatDuration,
   isBeingAnalyzed,
+  formatVersionSegment,
   formatDependencyChain,
   formatDependencyChainsLine,
   formatDependencyChainsBlock,
@@ -214,6 +215,29 @@ describe("isBeingAnalyzed", () => {
   });
 });
 
+describe("formatVersionSegment", () => {
+  it("returns null when there is no affected version", () => {
+    expect(formatVersionSegment(undefined, ["1.0.1"])).toBeNull();
+  });
+
+  it("formats affected → fixed without a prefix by default", () => {
+    expect(formatVersionSegment("1.0.0", ["1.0.1", "1.1.0"])).toBe(
+      "1.0.0 → 1.0.1, 1.1.0",
+    );
+  });
+
+  it("prepends 'Update ' when requested", () => {
+    expect(
+      formatVersionSegment("1.0.0", ["1.0.1"], { includeUpdatePrefix: true }),
+    ).toBe("Update 1.0.0 → 1.0.1");
+  });
+
+  it("omits the fixed suffix when no fixed version is given", () => {
+    expect(formatVersionSegment("1.0.0", [])).toBe("1.0.0");
+    expect(formatVersionSegment("1.0.0")).toBe("1.0.0");
+  });
+});
+
 describe("formatDependencyChain", () => {
   it("shows a 2-package chain in full", () => {
     expect(formatDependencyChain(["a@1", "m@0.1.2"])).toBe("a@1 → m@0.1.2");
@@ -245,9 +269,7 @@ describe("formatDependencyChain", () => {
 describe("formatDependencyChainsLine", () => {
   it("returns null for empty/undefined chains", () => {
     expect(formatDependencyChainsLine([])).toBeNull();
-    expect(
-      formatDependencyChainsLine(undefined as unknown as string[][]),
-    ).toBeNull();
+    expect(formatDependencyChainsLine(undefined)).toBeNull();
   });
 
   it("renders a direct dependency as actionable update text", () => {
@@ -293,9 +315,7 @@ describe("formatDependencyChainsLine", () => {
 describe("formatDependencyChainsBlock", () => {
   it("returns null for empty/undefined chains", () => {
     expect(formatDependencyChainsBlock([])).toBeNull();
-    expect(
-      formatDependencyChainsBlock(undefined as unknown as string[][]),
-    ).toBeNull();
+    expect(formatDependencyChainsBlock(undefined)).toBeNull();
   });
 
   it("renders all chains with the label once and aligned continuation lines", () => {

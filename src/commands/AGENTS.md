@@ -123,6 +123,7 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
 - `formatPrIssues(pr, passing)` — +newIssues (colored by gate) / -fixedIssues (always gray)
 
 Dependency-chain helpers shared between `findings.ts` (list) and `finding.ts` (detail):
+- `formatVersionSegment(affectedVersion, fixedVersion, { includeUpdatePrefix })` — the `affected → fixed` status-line segment shown when a finding has no dependency chains; `includeUpdatePrefix` prepends `Update ` (list uses it, detail doesn't); returns `null` when there's no affected version
 - `formatDependencyChain(chain)` — joins a chain with ` → `, collapsing the middle to `<first> → ... N more ... → <last>` when it has 4+ packages (≤ 3 shown in full)
 - `formatDependencyChainsLine(chains, fixedVersion)` — one-line list summary: first chain with its Direct/Transitive label + `... and N more`; returns `null` for no chains
 - `formatDependencyChainsBlock(chains, fixedVersion)` — multi-line detail block: all chains, label shown once, continuation lines aligned under the label; returns `null` for no chains
