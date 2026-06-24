@@ -122,6 +122,11 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
 - `formatPrCoverage(pr, passing)` — diffCoverage% (+/-deltaCoverage%)
 - `formatPrIssues(pr, passing)` — +newIssues (colored by gate) / -fixedIssues (always gray)
 
+Dependency-chain helpers shared between `findings.ts` (list) and `finding.ts` (detail):
+- `formatDependencyChain(chain)` — joins a chain with ` → `, collapsing the middle to `<first> → ... N more ... → <last>` when it has 4+ packages (≤ 3 shown in full)
+- `formatDependencyChainsLine(chains, fixedVersion)` — one-line list summary: first chain with its Direct/Transitive label + `... and N more`; returns `null` for no chains
+- `formatDependencyChainsBlock(chains, fixedVersion)` — multi-line detail block: all chains, label shown once, continuation lines aligned under the label; returns `null` for no chains
+
 Pattern helpers shared between `patterns.ts` (list) and `pattern.ts` (single info):
 - `printPatternCard(cp)` — the configured-pattern card (icons, enforced-by line, metadata, why/how, parameters)
 - `PATTERN_JSON_FIELDS` — `pickDeep` paths for the JSON projection of a `ConfiguredPattern`
@@ -213,6 +218,7 @@ Keeps the two command handlers thin: they only supply the API-specific callbacks
   - `-R, --ignore-reason`: `AcceptedUse` (default) | `FalsePositive` | `NotExploitable` | `TestCode` | `ExternalCode`
   - `-m, --ignore-comment`: optional free-text comment
 - **`--unignore` mode** (`-U`): calls `SecurityService.unignoreSecurityItem`; skips rendering finding details
+- **Dependency import chains** (SCA findings): when `item.dependencyChains` (`string[][]`) is present, both `finding` (detail) and `findings` (list) render the vulnerable dependency's import path. A chain with a single package is a **direct** dependency (`Direct - Update <pkg> to <fixedVersion>`); 2+ packages is **transitive** (`Transitive - <chain> (Fixed in <fixedVersion>)`). Chains with **4+ packages** collapse the middle to `<first> → ... N more ... → <last>` (N = length − 2). The list shows only the first chain + `... and X more`; the detail lists **all** chains with the Direct/Transitive label shown once and continuation lines indented so the `-` aligns. When chains are present, the redundant `AffectedVersion → FixedVersion` segment is dropped from the status line. Mixed direct/transitive chains (rare) take their label from the first chain. Rendering lives in `formatDependencyChainsLine` / `formatDependencyChainsBlock` (see Shared Formatting Utilities).
 
 ## pull-request command (`pull-request.ts`)
 

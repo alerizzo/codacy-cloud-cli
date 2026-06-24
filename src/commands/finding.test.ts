@@ -108,6 +108,28 @@ const mockScaFinding = {
   remediation: "Upgrade to lodash >= 4.17.21",
 };
 
+// An SCA finding reached transitively via multiple import chains (one collapsed).
+const mockScaWithChains = {
+  id: "mno-345-chains",
+  itemSource: "SCA" as any,
+  itemSourceId: "npm-minimatch-1",
+  title: "Denial of Service in minimatch",
+  repository: "my-repo",
+  openedAt: "2025-01-01T00:00:00Z",
+  dueAt: "2026-06-16T00:00:00Z",
+  priority: "High",
+  status: "Overdue",
+  securityCategory: "InsecureModulesLibraries",
+  scanType: "SCA",
+  cve: "CVE-2026-39363",
+  affectedVersion: "0.1.2",
+  fixedVersion: ["0.1.5"],
+  dependencyChains: [
+    ["package@1.0.0", "anotherPackage@0.5.2", "minimatch@0.1.2"],
+    ["anotherPackage@1.0.0", "b@1", "c@2", "d@3", "e@4", "minimatch@0.1.1"],
+  ],
+};
+
 // A Codacy-source finding linked to a quality issue
 const mockCodacyFinding = {
   id: "def-456-codacy",
@@ -237,6 +259,43 @@ describe("finding command", () => {
     expect(output).toContain("Remediation:");
     expect(output).toContain("Upgrade to lodash");
     expect(output).toContain("abc-123-sca");
+  });
+
+  it("should render all dependency chains with the label once and a collapsed middle", async () => {
+    vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+      data: mockScaWithChains,
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "finding", "gh", "test-org", "mno-345-chains",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain(
+      "Transitive - package@1.0.0 → anotherPackage@0.5.2 → minimatch@0.1.2 (Fixed in 0.1.5)",
+    );
+    // Continuation line aligned under "Transitive ", with the long chain collapsed.
+    expect(output).toContain(
+      "           - anotherPackage@1.0.0 → ... 4 more ... → minimatch@0.1.1 (Fixed in 0.1.5)",
+    );
+    // The redundant affectedVersion segment is dropped when chains exist.
+    expect(output).not.toContain("0.1.2 → 0.1.5");
+  });
+
+  it("should include dependencyChains in JSON output", async () => {
+    vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+      data: mockScaWithChains,
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "--output", "json", "finding", "gh", "test-org", "mno-345-chains",
+    ]);
+
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('"dependencyChains"'),
+    );
   });
 
   it("should show pattern info for Codacy-source findings", async () => {

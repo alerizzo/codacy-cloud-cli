@@ -44,6 +44,7 @@ The `findingId` is the UUID shown in dim gray at the end of each findings card.
 {Finding title}
 
 {Status} {DueAt} | {Optional: CVE/CWE} | {Optional: AffectedVersion → FixedVersion} | {Optional: Application} | {Optional: AffectedTargets}
+{Optional: Dependency import chains (SCA findings with dependencyChains)}
 
 {Optional: Ignored by {name} on {date}}
 {Optional: Ignored reason}
@@ -69,6 +70,17 @@ When `item.cve` is present, fetch CVE data from `https://cveawg.mitre.org/api/cv
 
 For Codacy-source findings, the CVE block is injected between the code context and the pattern documentation. For non-Codacy-source findings, it follows the prose fields.
 
+## Dependency import chains (SCA)
+
+When a finding carries `dependencyChains` (`string[][]`), **all** chains are listed
+below the status line. The Direct/Transitive label (from the first chain) appears
+once; continuation lines are indented so the `-` aligns under it. The
+`AffectedVersion → FixedVersion` segment is dropped from the status line.
+
+Same per-chain rules as `findings` (direct → `Update <pkg> to <fixedVersion>`;
+transitive → `<chain> (Fixed in <fixedVersion>)`; 4+ packages collapse the middle
+to `<first> → ... N more ... → <last>`). See `SPECS/commands/findings.md`.
+
 ## Tests
 
-File: `src/commands/finding.test.ts` — 14 tests (9 original + 5 for CVE enrichment).
+File: `src/commands/finding.test.ts` — 23 tests.
