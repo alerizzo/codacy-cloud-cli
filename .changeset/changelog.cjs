@@ -29,16 +29,25 @@ const github = require("@changesets/changelog-github").default;
 const git = require("@changesets/changelog-git").default;
 
 // Read tunables at call time (not module load) so tests can override them via
-// process.env without fighting ES module import hoisting.
+// process.env without fighting ES module import hoisting. Invalid overrides
+// (non-numeric, negative, NaN) are ignored in favour of the safe defaults so a
+// typo'd env var can't silently break retries.
 function getConfig() {
+  const attempts = Number(process.env.CHANGELOG_GITHUB_ATTEMPTS);
+  const delay = Number(process.env.CHANGELOG_GITHUB_RETRY_MS);
   return {
-    maxAttempts: Number(process.env.CHANGELOG_GITHUB_ATTEMPTS) || 3,
-    retryDelayMs:
-      process.env.CHANGELOG_GITHUB_RETRY_MS !== undefined
-        ? Number(process.env.CHANGELOG_GITHUB_RETRY_MS)
-        : 1000,
+    // Always run at least one attempt.
+    maxAttempts: Number.isInteger(attempts) && attempts >= 1 ? attempts : 3,
+    // Non-negative, finite delay only.
+    retryDelayMs: Number.isFinite(delay) && delay >= 0 ? delay : 1000,
   };
 }
+
+// Extract a log-safe message from an unknown thrown value. The underlying
+// generators throw Error objects, but we must never let a non-Error rejection
+// (e.g. `throw undefined`) make `.message` throw inside the catch block — that
+// would crash the very generation this wrapper exists to keep alive.
+const errorMessage = (err) => (err && err.message) || String(err);
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -56,7 +65,7 @@ async function withFallback(label, githubFn, gitFn) {
       if (attempt < maxAttempts) {
         console.warn(
           `[changelog] GitHub enrichment for ${label} failed ` +
-            `(attempt ${attempt}/${maxAttempts}): ${error.message}. Retrying...`,
+            `(attempt ${attempt}/${maxAttempts}): ${errorMessage(error)}. Retrying...`,
         );
         // Linear backoff: 1x, 2x, ... the base delay.
         await sleep(retryDelayMs * attempt);
@@ -66,7 +75,7 @@ async function withFallback(label, githubFn, gitFn) {
 
   console.warn(
     `[changelog] GitHub enrichment for ${label} failed after ${maxAttempts} ` +
-      `attempts: ${lastError && lastError.message}. Falling back to a plain ` +
+      `attempts: ${errorMessage(lastError)}. Falling back to a plain ` +
       `(git) changelog entry for this release.`,
   );
   return gitFn();

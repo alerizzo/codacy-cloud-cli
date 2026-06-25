@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // @ts-expect-error - plain CJS module, no type declarations
 import changelog from "./changelog.cjs";
 
@@ -10,10 +10,16 @@ const { withFallback } = changelog;
 // (vi.mock cannot intercept the require() inside the .cjs module).
 describe("changelog withFallback", () => {
   beforeEach(() => {
-    // Remove retry delays so the failing-path tests run instantly.
-    process.env.CHANGELOG_GITHUB_RETRY_MS = "0";
-    delete process.env.CHANGELOG_GITHUB_ATTEMPTS;
+    // Remove retry delays so the failing-path tests run instantly. vi.stubEnv +
+    // vi.unstubAllEnvs keeps these mutations from leaking out of the file.
+    vi.stubEnv("CHANGELOG_GITHUB_RETRY_MS", "0");
+    vi.stubEnv("CHANGELOG_GITHUB_ATTEMPTS", undefined);
     vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it("uses the GitHub generator when it succeeds (no fallback)", async () => {
@@ -52,8 +58,20 @@ describe("changelog withFallback", () => {
     expect(gitFn).toHaveBeenCalledTimes(1);
   });
 
+  it("falls back without throwing when GitHub rejects with a non-Error value", async () => {
+    // A non-Error rejection must not make `.message` throw inside the catch.
+    const githubFn = vi.fn().mockRejectedValue(undefined);
+    const gitFn = vi.fn().mockResolvedValue("- git line");
+
+    const result = await withFallback("release line", githubFn, gitFn);
+
+    expect(result).toBe("- git line");
+    expect(githubFn).toHaveBeenCalledTimes(3);
+    expect(gitFn).toHaveBeenCalledTimes(1);
+  });
+
   it("honours a custom attempt count via CHANGELOG_GITHUB_ATTEMPTS", async () => {
-    process.env.CHANGELOG_GITHUB_ATTEMPTS = "5";
+    vi.stubEnv("CHANGELOG_GITHUB_ATTEMPTS", "5");
     const githubFn = vi.fn().mockRejectedValue(new Error("Premature close"));
     const gitFn = vi.fn().mockResolvedValue("- git line");
 
@@ -61,6 +79,29 @@ describe("changelog withFallback", () => {
 
     expect(githubFn).toHaveBeenCalledTimes(5);
     expect(gitFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores an invalid attempt-count override and uses the default", async () => {
+    vi.stubEnv("CHANGELOG_GITHUB_ATTEMPTS", "-1");
+    const githubFn = vi.fn().mockRejectedValue(new Error("Premature close"));
+    const gitFn = vi.fn().mockResolvedValue("- git line");
+
+    await withFallback("release line", githubFn, gitFn);
+
+    expect(githubFn).toHaveBeenCalledTimes(3); // -1 ignored -> default 3
+    expect(gitFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("tolerates a non-numeric retry-delay override without producing NaN waits", async () => {
+    vi.stubEnv("CHANGELOG_GITHUB_RETRY_MS", "not-a-number");
+    vi.stubEnv("CHANGELOG_GITHUB_ATTEMPTS", "1"); // 1 attempt -> no sleep path
+    const githubFn = vi.fn().mockRejectedValue(new Error("Premature close"));
+    const gitFn = vi.fn().mockResolvedValue("- git line");
+
+    const result = await withFallback("release line", githubFn, gitFn);
+
+    expect(result).toBe("- git line");
+    expect(githubFn).toHaveBeenCalledTimes(1);
   });
 
   it("exposes getReleaseLine and getDependencyReleaseLine for changesets", () => {
