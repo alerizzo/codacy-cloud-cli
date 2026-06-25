@@ -45,6 +45,7 @@ Card-style format:
 {Optional: affectedTargets}
 
 {Status} {DueAt} | {Optional: CVE or CWE} | {Optional: AffectedVersion → FixedVersion} | {Optional: Application}
+{Optional: Dependency import chain (SCA findings with dependencyChains)}
 
 ────────────────────────────────────────
 ```
@@ -55,6 +56,18 @@ Priority colors: Critical=red, High=orange, Medium=yellow, Low=blue.
 
 Shows pagination warning if more results exist.
 
+### Dependency import chain (SCA)
+
+When a finding carries `dependencyChains` (`string[][]` — one ordered import chain
+per entry, root → vulnerable package), a dedicated line is shown below the status
+line, built from the **first** chain. The `AffectedVersion → FixedVersion` segment
+is dropped from the status line (it would duplicate the chain line).
+
+- **Direct** (chain has 1 package): `Direct - Update <pkg> to <fixedVersion>`
+- **Transitive** (2+ packages): `Transitive - <pkg> → … → <pkg> (Fixed in <fixedVersion>)`
+- Chains with **4+ packages** collapse their middle: `<first> → ... N more ... → <last>` (N = length − 2).
+- Multiple chains append `... and X more` (X = chains − 1).
+
 ## Tests
 
-File: `src/commands/findings.test.ts` — 13 tests.
+File: `src/commands/findings.test.ts` — 24 tests.

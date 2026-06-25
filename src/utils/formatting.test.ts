@@ -4,6 +4,10 @@ import {
   resolveToolUuids,
   formatDuration,
   isBeingAnalyzed,
+  formatVersionSegment,
+  formatDependencyChain,
+  formatDependencyChainsLine,
+  formatDependencyChainsBlock,
 } from "./formatting";
 
 // Mock ansis to return raw text for easier testing
@@ -208,5 +212,134 @@ describe("isBeingAnalyzed", () => {
 
   it("is false when never started", () => {
     expect(isBeingAnalyzed(undefined, undefined)).toBe(false);
+  });
+});
+
+describe("formatVersionSegment", () => {
+  it("returns null when there is no affected version", () => {
+    expect(formatVersionSegment(undefined, ["1.0.1"])).toBeNull();
+  });
+
+  it("formats affected → fixed without a prefix by default", () => {
+    expect(formatVersionSegment("1.0.0", ["1.0.1", "1.1.0"])).toBe(
+      "1.0.0 → 1.0.1, 1.1.0",
+    );
+  });
+
+  it("prepends 'Update ' when requested", () => {
+    expect(
+      formatVersionSegment("1.0.0", ["1.0.1"], { includeUpdatePrefix: true }),
+    ).toBe("Update 1.0.0 → 1.0.1");
+  });
+
+  it("omits the fixed suffix when no fixed version is given", () => {
+    expect(formatVersionSegment("1.0.0", [])).toBe("1.0.0");
+    expect(formatVersionSegment("1.0.0")).toBe("1.0.0");
+  });
+});
+
+describe("formatDependencyChain", () => {
+  it("shows a 2-package chain in full", () => {
+    expect(formatDependencyChain(["a@1", "m@0.1.2"])).toBe("a@1 → m@0.1.2");
+  });
+
+  it("shows a 3-package chain in full", () => {
+    expect(formatDependencyChain(["a@1", "b@2", "m@0.1.2"])).toBe(
+      "a@1 → b@2 → m@0.1.2",
+    );
+  });
+
+  it("collapses the middle of a 4-package chain to '2 more'", () => {
+    expect(formatDependencyChain(["a@1", "b@2", "c@3", "d@4"])).toBe(
+      "a@1 → ... 2 more ... → d@4",
+    );
+  });
+
+  it("collapses the middle of a 5-package chain to '3 more'", () => {
+    expect(formatDependencyChain(["a@1", "b@2", "c@3", "d@4", "e@5"])).toBe(
+      "a@1 → ... 3 more ... → e@5",
+    );
+  });
+
+  it("shows a single-package chain as-is", () => {
+    expect(formatDependencyChain(["m@0.1.2"])).toBe("m@0.1.2");
+  });
+});
+
+describe("formatDependencyChainsLine", () => {
+  it("returns null for empty/undefined chains", () => {
+    expect(formatDependencyChainsLine([])).toBeNull();
+    expect(formatDependencyChainsLine(undefined)).toBeNull();
+  });
+
+  it("renders a direct dependency as actionable update text", () => {
+    expect(formatDependencyChainsLine([["minimatch@0.1.2"]], ["0.1.5"])).toBe(
+      "Direct - Update minimatch@0.1.2 to 0.1.5",
+    );
+  });
+
+  it("renders a transitive chain with the fixed version", () => {
+    expect(
+      formatDependencyChainsLine(
+        [["package@1.0.0", "anotherPackage@0.5.2", "minimatch@0.1.2"]],
+        ["0.1.5"],
+      ),
+    ).toBe(
+      "Transitive - package@1.0.0 → anotherPackage@0.5.2 → minimatch@0.1.2 (Fixed in 0.1.5)",
+    );
+  });
+
+  it("appends '... and N more' when there are extra chains", () => {
+    expect(
+      formatDependencyChainsLine(
+        [
+          ["a@1", "m@0.1.2"],
+          ["b@1", "m@0.1.2"],
+          ["c@1", "m@0.1.2"],
+        ],
+        ["0.1.5"],
+      ),
+    ).toBe("Transitive - a@1 → m@0.1.2 (Fixed in 0.1.5) ... and 2 more");
+  });
+
+  it("omits the fixed-version suffix when none is provided", () => {
+    expect(formatDependencyChainsLine([["a@1", "m@0.1.2"]])).toBe(
+      "Transitive - a@1 → m@0.1.2",
+    );
+    expect(formatDependencyChainsLine([["minimatch@0.1.2"]])).toBe(
+      "Direct - Update minimatch@0.1.2",
+    );
+  });
+});
+
+describe("formatDependencyChainsBlock", () => {
+  it("returns null for empty/undefined chains", () => {
+    expect(formatDependencyChainsBlock([])).toBeNull();
+    expect(formatDependencyChainsBlock(undefined)).toBeNull();
+  });
+
+  it("renders all chains with the label once and aligned continuation lines", () => {
+    const block = formatDependencyChainsBlock(
+      [
+        ["package@1.0.0", "anotherPackage@0.5.2", "minimatch@0.1.2"],
+        ["anotherPackage@1.0.0", "b@1", "c@2", "d@3", "e@4", "minimatch@0.1.1"],
+      ],
+      ["0.1.5"],
+    );
+    expect(block).toBe(
+      "Transitive - package@1.0.0 → anotherPackage@0.5.2 → minimatch@0.1.2 (Fixed in 0.1.5)\n" +
+        "           - anotherPackage@1.0.0 → ... 4 more ... → minimatch@0.1.1 (Fixed in 0.1.5)",
+    );
+  });
+
+  it("aligns continuation lines under a shorter 'Direct' label", () => {
+    const block = formatDependencyChainsBlock(
+      [["minimatch@0.1.2"], ["minimatch@0.1.3"]],
+      ["0.1.5"],
+    );
+    expect(block).toBe(
+      "Direct - Update minimatch@0.1.2 to 0.1.5\n" +
+        "       - Update minimatch@0.1.3 to 0.1.5",
+    );
   });
 });

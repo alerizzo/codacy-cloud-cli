@@ -8,6 +8,8 @@ import {
   colorPriority,
   colorStatus,
   formatDueDate,
+  formatVersionSegment,
+  formatDependencyChainsBlock,
   printCveBlock,
   printIssueCodeContext,
 } from "../utils/formatting";
@@ -76,18 +78,30 @@ function printFindingDetail(
   if (item.cve) line2Parts.push(ansis.dim(item.cve));
   else if (item.cwe) line2Parts.push(ansis.dim(`CWE-${item.cwe}`));
 
-  if (item.affectedVersion) {
-    const fixed =
-      item.fixedVersion && item.fixedVersion.length > 0
-        ? ` → ${item.fixedVersion.join(", ")}`
-        : "";
-    line2Parts.push(ansis.dim(`${item.affectedVersion}${fixed}`));
+  // When dependency chains are present they carry the vulnerable package and
+  // fixed version on their own line, so the redundant version segment is dropped.
+  const hasChains = !!item.dependencyChains?.length;
+  if (!hasChains) {
+    const versionSegment = formatVersionSegment(
+      item.affectedVersion,
+      item.fixedVersion,
+    );
+    if (versionSegment) line2Parts.push(ansis.dim(versionSegment));
   }
 
   if (item.application) line2Parts.push(ansis.dim(item.application));
   if (item.affectedTargets) line2Parts.push(ansis.dim(item.affectedTargets));
 
   console.log(line2Parts.join(pipe));
+
+  // Dependency import chains (SCA findings with dependencyChains)
+  if (hasChains) {
+    const chainBlock = formatDependencyChainsBlock(
+      item.dependencyChains,
+      item.fixedVersion,
+    );
+    if (chainBlock) console.log(ansis.dim(chainBlock));
+  }
 
   // Ignored section
   if (item.ignored) {
@@ -249,6 +263,7 @@ Examples:
             "finding.fixedVersion",
             "finding.application",
             "finding.affectedTargets",
+            "finding.dependencyChains",
             "finding.ignored",
             "finding.summary",
             "finding.additionalInfo",

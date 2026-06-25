@@ -75,6 +75,47 @@ const mockPenTestFinding = {
   application: "my-app",
 };
 
+// SCA finding reached transitively via multiple import chains.
+const mockScaTransitive = {
+  id: "finding-sca-transitive",
+  itemSource: "SCA",
+  itemSourceId: "sca-1",
+  title: "Denial of Service in minimatch",
+  repository: "my-repo",
+  openedAt: "2024-02-01T00:00:00Z",
+  dueAt: "2026-06-16T00:00:00Z",
+  priority: "High",
+  status: "Overdue",
+  securityCategory: "InsecureModulesLibraries",
+  scanType: "SCA",
+  cve: "CVE-2026-27903",
+  affectedVersion: "0.1.2",
+  fixedVersion: ["0.1.5"],
+  dependencyChains: [
+    ["package@1.0.0", "anotherPackage@0.5.2", "minimatch@0.1.2"],
+    ["other@1.0.0", "minimatch@0.1.2"],
+  ],
+};
+
+// SCA finding for a directly-imported vulnerable dependency.
+const mockScaDirect = {
+  id: "finding-sca-direct",
+  itemSource: "SCA",
+  itemSourceId: "sca-2",
+  title: "Denial of Service in minimatch",
+  repository: "my-repo",
+  openedAt: "2024-02-01T00:00:00Z",
+  dueAt: "2026-06-16T00:00:00Z",
+  priority: "High",
+  status: "Overdue",
+  securityCategory: "InsecureModulesLibraries",
+  scanType: "SCA",
+  cve: "CVE-2026-27903",
+  affectedVersion: "0.1.2",
+  fixedVersion: ["0.1.5"],
+  dependencyChains: [["minimatch@0.1.2"]],
+};
+
 function getAllOutput(): string {
   return (console.log as ReturnType<typeof vi.fn>).mock.calls
     .map((c) => c[0])
@@ -443,6 +484,48 @@ describe("findings command", () => {
     const output = getAllOutput();
     expect(output).toContain("1.0.0");
     expect(output).toContain("1.0.1");
+  });
+
+  it("should show a transitive dependency chain with '... and N more' for multiple chains", async () => {
+    vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+      data: [mockScaTransitive],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "findings",
+      "gh",
+      "test-org",
+      "test-repo",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain(
+      "Transitive - package@1.0.0 → anotherPackage@0.5.2 → minimatch@0.1.2 (Fixed in 0.1.5) ... and 1 more",
+    );
+    // The redundant "Update <affectedVersion>" segment is dropped when chains exist.
+    expect(output).not.toContain("Update 0.1.2");
+  });
+
+  it("should show a direct dependency as actionable update text", async () => {
+    vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+      data: [mockScaDirect],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "findings",
+      "gh",
+      "test-org",
+      "test-repo",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("Direct - Update minimatch@0.1.2 to 0.1.5");
   });
 
   it("should show likelihood and effortToFix for pen test findings", async () => {

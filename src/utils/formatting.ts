@@ -83,6 +83,97 @@ export function formatDueDate(dateStr: string): string {
   return dateFnsFormat(date, "yyyy-MM-dd");
 }
 
+// --- Dependency chains (SCA findings) -------------------------------------
+//
+// An SCA finding may carry `dependencyChains` (string[][]): each inner array is
+// one ordered import chain from a root package down to the vulnerable package
+// (the last segment). A finding can have several chains reaching the same
+// vulnerable package via different paths. We surface these on both the findings
+// list and the finding detail.
+
+// Chains with more than this many packages collapse their middle into "... N more ...".
+const CHAIN_FULL_MAX = 3;
+
+/**
+ * Join a dependency chain with " → ", collapsing the middle when the chain has
+ * more than 3 packages (showing only the first and last, e.g.
+ * `a@1 → ... 2 more ... → d@4`). Chains with ≤ 3 packages are shown in full.
+ */
+export function formatDependencyChain(chain: string[]): string {
+  if (chain.length <= CHAIN_FULL_MAX) return chain.join(" → ");
+  const hidden = chain.length - 2;
+  return `${chain[0]} → ... ${hidden} more ... → ${chain[chain.length - 1]}`;
+}
+
+/**
+ * Render the body of a single chain line (without the Direct/Transitive label).
+ * A single-package chain is a direct dependency and gets actionable update text;
+ * longer chains show the (possibly collapsed) import path plus the fixed version.
+ */
+function dependencyChainBody(chain: string[], fixedVersion?: string[]): string {
+  const fixed = fixedVersion?.length ? fixedVersion.join(", ") : "";
+  if (chain.length === 1) {
+    // Direct dependency: the package is imported directly, so show how to fix it.
+    return fixed ? `Update ${chain[0]} to ${fixed}` : `Update ${chain[0]}`;
+  }
+  const suffix = fixed ? ` (Fixed in ${fixed})` : "";
+  return `${formatDependencyChain(chain)}${suffix}`;
+}
+
+/**
+ * Format the "affected → fixed" version segment shown on a finding's status line
+ * for SCA findings that have no dependency chains. Returns null when there is no
+ * affected version. `includeUpdatePrefix` prepends "Update " (the findings list
+ * uses it; the finding detail does not).
+ */
+export function formatVersionSegment(
+  affectedVersion?: string,
+  fixedVersion?: string[],
+  options?: { includeUpdatePrefix?: boolean },
+): string | null {
+  if (!affectedVersion) return null;
+  const fixed = fixedVersion?.length ? ` → ${fixedVersion.join(", ")}` : "";
+  const prefix = options?.includeUpdatePrefix ? "Update " : "";
+  return `${prefix}${affectedVersion}${fixed}`;
+}
+
+/**
+ * One-line dependency summary for the findings list: the first chain prefixed
+ * with its Direct/Transitive label, plus "... and N more" when there are extra
+ * chains. Returns null when there are no chains.
+ */
+export function formatDependencyChainsLine(
+  chains?: string[][],
+  fixedVersion?: string[],
+): string | null {
+  if (!chains?.length) return null;
+  const first = chains[0];
+  const label = first.length === 1 ? "Direct" : "Transitive";
+  let line = `${label} - ${dependencyChainBody(first, fixedVersion)}`;
+  if (chains.length > 1) line += ` ... and ${chains.length - 1} more`;
+  return line;
+}
+
+/**
+ * Multi-line dependency block for the finding detail: every chain on its own
+ * line. The label (from the first chain) is shown once; continuation lines are
+ * indented so the "-" aligns under it. Returns null when there are no chains.
+ */
+export function formatDependencyChainsBlock(
+  chains?: string[][],
+  fixedVersion?: string[],
+): string | null {
+  if (!chains?.length) return null;
+  const label = chains[0].length === 1 ? "Direct" : "Transitive";
+  const indent = " ".repeat(label.length + 1) + "- ";
+  return chains
+    .map(
+      (chain, i) =>
+        `${i === 0 ? `${label} - ` : indent}${dependencyChainBody(chain, fixedVersion)}`,
+    )
+    .join("\n");
+}
+
 /**
  * Print a single issue card shared by the `issues` and `pull-request` commands.
  * The issue ID (resultDataId) is appended at the end of the first line in a

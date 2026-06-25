@@ -15,6 +15,8 @@ import {
   colorPriority,
   colorStatus,
   formatDueDate,
+  formatVersionSegment,
+  formatDependencyChainsLine,
 } from "../utils/formatting";
 import { SecurityService } from "../api/client/services/SecurityService";
 import { SrmItem } from "../api/client/models/SrmItem";
@@ -110,18 +112,32 @@ function printFindingCard(item: SrmItem, showRepo: boolean): void {
   if (item.cve) line3Parts.push(ansis.dim(item.cve));
   else if (item.cwe) line3Parts.push(ansis.dim(`CWE-${item.cwe}`));
 
-  if (item.affectedVersion) {
-    const fixed =
-      item.fixedVersion && item.fixedVersion.length > 0
-        ? ` → ${item.fixedVersion.join(", ")}`
-        : "";
-    line3Parts.push(ansis.dim(`Update ${item.affectedVersion}${fixed}`));
+  // When dependency chains are present they carry the vulnerable package and
+  // fixed version on their own line, so the redundant version segment is dropped.
+  const hasChains = !!item.dependencyChains?.length;
+  if (!hasChains) {
+    const versionSegment = formatVersionSegment(
+      item.affectedVersion,
+      item.fixedVersion,
+      { includeUpdatePrefix: true },
+    );
+    if (versionSegment) line3Parts.push(ansis.dim(versionSegment));
   }
 
   if (item.application) line3Parts.push(ansis.dim(item.application));
   //if (item.affectedTargets) line3Parts.push(ansis.dim(item.affectedTargets));
 
   console.log(line3Parts.join(pipe));
+
+  // Line 4: dependency import chain (SCA findings with dependencyChains)
+  if (hasChains) {
+    const chainLine = formatDependencyChainsLine(
+      item.dependencyChains,
+      item.fixedVersion,
+    );
+    if (chainLine) console.log(ansis.dim(chainLine));
+  }
+
   console.log();
   console.log(separator);
 }
@@ -306,6 +322,7 @@ Examples:
               "fixedVersion",
               "application",
               "affectedTargets",
+              "dependencyChains",
             ])),
             total,
           });

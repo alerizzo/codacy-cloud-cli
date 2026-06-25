@@ -1,16 +1,25 @@
 ---
-description: Changeset + branch + commit + push + PR for the current working tree
+description: Changeset + branch + commit + push + PR, then wait for AI reviews and auto-run /pr-fixup
 ---
 
 # Ship it
 
 Take the current uncommitted changes on `main` (or on a branch already derived
-from `main` for this task) and turn them into an open PR. End-to-end: make
-sure there's a changeset, cut a branch, commit, push, open the PR. This is a
-user-triggered action — invoking this command IS the explicit authorisation
-required by the repo's "never commit, push, or open PRs without asking" rule,
-so you can proceed without further confirmation once you've sanity-checked
-what's about to be shipped.
+from `main` for this task) and turn them into an open PR, **then wait for the
+AI reviewers and automatically run `/pr-fixup` on their feedback**. End-to-end:
+make sure there's a changeset, cut a branch, commit, push, open the PR (Phases
+0–5); then poll for the real AI reviews and chain into `/pr-fixup` (Phases 6–7);
+finally report (Phase 8). This is a user-triggered action — invoking this
+command IS the explicit authorisation required by the repo's "never commit,
+push, or open PRs without asking" rule, so you can proceed without further
+confirmation once you've sanity-checked what's about to be shipped.
+
+**The wait-for-reviews + auto-fixup stage runs by default.** It commits, pushes,
+and posts reply comments on the PR without a separate prompt — that is the
+intended behavior. Pass `--no-fixup` to skip it and get the classic
+"open the PR and stop" flow. Note that the auto-fixup step depends on the
+personal `/pr-fixup` command being installed; if it isn't, ship-it still opens
+the PR and waits for reviews but skips fixup with a note (see Phase 7).
 
 **Arguments:** `$ARGUMENTS`
 
@@ -21,6 +30,9 @@ Optional, space-separated, in any order:
 - A bump type: `patch`, `minor`, or `major`. If absent, infer — see Phase 1.
 - A quoted PR title (wrap in double quotes if it contains spaces). If absent,
   derive from the commit/changeset — see Phase 5.
+- `--no-fixup` — skip the post-open "wait for AI reviews + auto-run `/pr-fixup`"
+  stage (Phases 6–7) and behave like classic ship-it: open the PR and stop. By
+  default (no flag) ship-it DOES wait for the real reviews and auto-fixup.
 
 ---
 
@@ -164,7 +176,14 @@ CI on `main` fails any PR without a changeset, so this step is mandatory.
 
 ## Phase 5: Push and open the PR
 
-1. Push with upstream tracking:
+1. Capture the moment just before pushing — the review poller in Phase 6 uses
+   it to ignore any stale reviews from earlier pushes (matters on re-runs):
+
+   ```bash
+   START="$(date -u +%Y-%m-%dT%H:%M:%SZ)"   # remember this value for Phase 6
+   ```
+
+   Then push with upstream tracking:
 
    ```bash
    git push -u origin <branch>
@@ -204,16 +223,136 @@ CI on `main` fails any PR without a changeset, so this step is mandatory.
    - Use the argument if provided; otherwise derive from the changeset title
      or the commit subject.
 
-4. Capture the PR URL from `gh pr create`'s stdout and print it in the
-   end-of-turn summary.
+4. Capture the PR **URL and number** from `gh pr create`'s stdout (or
+   `gh pr view --json number,url`). You need the number for Phase 6 and the URL
+   for the final report.
 
 ---
 
-## Phase 6: Report
+## Phase 6: Wait for the AI reviews
 
-One sentence on what shipped, plus the PR URL. Don't re-summarise the diff —
-the PR body already does. If anything was skipped or changed from the
-defaults (e.g. bump type defaulted to patch because ambiguous, branch name
-had a suffix appended because of collision, pre-commit hook required a
-retry), mention it in a single parenthetical line so the user can course-
-correct if needed.
+**If `--no-fixup` was passed, skip this phase and Phase 7 — go straight to
+Phase 8** (classic "open the PR and stop" behavior).
+
+This repo has three AI reviewers wired up. Each one posts an **immediate
+summary/help comment that is NOT the review**, then its real review a few
+minutes later. You must wait for the _real_ review, not the placeholder:
+
+| Reviewer | Bot login | Immediate comment (ignore) | Real review (wait for) |
+|----------|-----------|----------------------------|------------------------|
+| Gemini Code Assist | `gemini-code-assist[bot]` | issue comment: "## Summary of Changes … I'll post my feedback shortly" | review: "## Code Review …" |
+| Codacy | `codacy-production[bot]` | issue comment: "## Up to standards …" | review: "### Pull Request Overview …" |
+| GitHub Copilot | `copilot-pull-request-reviewer[bot]` | (none) | review: "## Pull request overview …" |
+
+**The reliable signal:** a reviewer's real review is a submitted entry in the
+Pull-Request *reviews* API (`pulls/{n}/reviews`). The immediate summary/help
+comments only ever land as *issue* comments (`issues/{n}/comments`) — they never
+appear in the reviews API. So "all reviews are in" = every expected bot login
+appears in `pulls/{n}/reviews` with a `submitted_at` at/after the push from
+Phase 5. (Historically all three land within ~6 minutes of opening.)
+
+Launch a background poller and **do not block the foreground** — the harness
+re-invokes you when it exits (one completion notification). Substitute the PR
+number from Phase 5 and the `START` timestamp you captured before pushing, then
+run this with `run_in_background: true`:
+
+```bash
+OWNER="codacy"; REPO="codacy-cloud-cli"
+PR="__PR_NUMBER__"            # from Phase 5
+START="__START_ISO8601_UTC__" # from Phase 5, e.g. 2026-06-24T12:30:00Z
+MAX_WAIT=900   # 15-minute hard cap
+POLL=90        # seconds between polls (never below ~30s — GitHub rate limits)
+# AI reviewers configured on this repo. Their *real* reviews land in the reviews
+# API; their immediate "summary/help" comments do not. Edit this list if the
+# repo's reviewer set changes.
+EXPECTED=("gemini-code-assist[bot]" "copilot-pull-request-reviewer[bot]" "codacy-production[bot]")
+
+deadline=$(( $(date +%s) + MAX_WAIT ))
+while :; do
+  # Distinct bot logins that have SUBMITTED a review at/after the push.
+  arrived="$(gh api "repos/$OWNER/$REPO/pulls/$PR/reviews" --paginate \
+    --jq '.[] | select(.submitted_at != null and .submitted_at >= "'"$START"'") | .user.login' \
+    2>/dev/null | sort -u)"
+  missing=()
+  for bot in "${EXPECTED[@]}"; do
+    grep -qxF "$bot" <<<"$arrived" || missing+=("$bot")
+  done
+  if [ "${#missing[@]}" -eq 0 ]; then
+    echo "READY arrived=[$(paste -sd, - <<<"$arrived")]"
+    exit 0
+  fi
+  if [ "$(date +%s)" -ge "$deadline" ]; then
+    echo "TIMEOUT after ${MAX_WAIT}s arrived=[$(paste -sd, - <<<"$arrived")] missing=[$(IFS=,; echo "${missing[*]}")]"
+    exit 0
+  fi
+  sleep "$POLL"
+done
+```
+
+When the poller exits you are re-invoked with its final stdout line. Read it:
+
+- `READY arrived=[…]` → all three real reviews are in. Proceed to Phase 7.
+- `TIMEOUT … missing=[…]` → not everyone posted within 15 min. **Proceed to
+  Phase 7 anyway** against the reviews that did arrive, and carry the `missing`
+  list into the Phase 8 report so the user knows to re-run later.
+
+Why a background poller and not a Haiku subagent: the "real review vs. summary
+comment" distinction is fully deterministic (presence in the reviews API), so no
+model judgment is needed during the wait — a background shell loop costs zero
+tokens and the harness wakes you the instant it finishes. A transient `gh api`
+failure just yields an empty poll; the loop retries on the next tick.
+
+---
+
+## Phase 7: Auto-run /pr-fixup (if available)
+
+(Reached only when `--no-fixup` was NOT passed.)
+
+**Dependency check first.** `/pr-fixup` is a *personal* command — it normally
+lives in `~/.claude/commands/pr-fixup.md` and is **not** vendored into this repo.
+ship-it is committed and shared, so don't assume it's present. Check both the
+project and user locations:
+
+```bash
+{ test -f .claude/commands/pr-fixup.md || test -f ~/.claude/commands/pr-fixup.md; } \
+  && echo "pr-fixup: available" || echo "pr-fixup: MISSING"
+```
+
+- **MISSING** → skip the rest of this phase. The PR is open and the reviews are
+  in; there's just no fixup command to run here. Carry this into the Phase 8
+  report: state that auto-fixup was skipped because `/pr-fixup` isn't installed
+  in this environment, and that the user should run their own fixup (or vendor
+  `pr-fixup` into the repo) to continue. Do not try to hand-roll the triage.
+- **Available** → continue with the steps below.
+
+1. Invoke the `/pr-fixup` command (via the Skill tool, skill `pr-fixup`) for the
+   PR you just opened. It triages every review comment, replies with decisions,
+   pulls in Codacy analysis, and applies the fixes worth making.
+2. When `/pr-fixup` has applied its fixes, **commit and push them** — never
+   leave them uncommitted (this is the standing `/pr-fixup` expectation). Use a
+   `fix:` / `chore:` commit that references the review round, then `git push`.
+   Include a fresh changeset only if the fixes change package code in a way the
+   existing changeset doesn't already cover.
+3. Do **one** pass only. Do NOT loop back to Phase 6 to wait for re-reviews of
+   the pushed fixes — that risks an endless ship→review→fix cycle. Report and
+   stop; the user can re-run `/ship-it` or `/pr-fixup` if they want another round.
+
+---
+
+## Phase 8: Report
+
+Lead with one sentence on what shipped, plus the PR URL. Don't re-summarise the
+diff — the PR body already does. Then, unless `--no-fixup` was passed, add a
+short recap of the review round:
+
+- Which reviewers' real reviews arrived (and, if the poller timed out, which
+  were still `missing` — call this out so the user can re-run later).
+- What `/pr-fixup` did: comments addressed vs. dismissed, any Codacy issues
+  fixed/ignored, and whether fixup changes were committed and pushed — or, if
+  `/pr-fixup` wasn't installed in this environment, that auto-fixup was skipped
+  for that reason and the user should run their own.
+
+If anything was skipped or changed from the defaults (e.g. bump type defaulted
+to patch because ambiguous, branch name had a suffix appended because of
+collision, pre-commit hook required a retry, reviews timed out), mention it in a
+single parenthetical line so the user can course-correct if needed.
