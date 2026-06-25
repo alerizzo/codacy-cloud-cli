@@ -1,5 +1,11 @@
 # @codacy/codacy-cloud-cli
 
+## 1.4.0
+
+### Minor Changes
+
+- [#20](https://github.com/codacy/codacy-cloud-cli/pull/20) [`cbf62d5`](https://github.com/codacy/codacy-cloud-cli/commit/cbf62d59da02d45b00a94cba2a1d275e615a7c5d) Thanks [@alerizzo](https://github.com/alerizzo)! - `codacy findings` and `codacy finding` now show the vulnerable dependency's import chain for SCA findings that carry the new `dependencyChains` field. Each finding is labelled **Direct** (`Update <pkg> to <fixedVersion>`) or **Transitive** (`<pkg> → … → <pkg> (Fixed in <fixedVersion>)`), and chains with 4+ packages collapse their middle to `<first> → ... N more ... → <last>`. The list shows the first chain plus `... and X more`; the detail lists every chain aligned under a single label. `dependencyChains` is also included in `--output json`.
+
 ## 1.3.1
 
 ### Patch Changes
