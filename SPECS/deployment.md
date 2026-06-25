@@ -39,6 +39,21 @@ Steps:
    - Creates/updates a "chore: version packages" PR (bumps version, updates CHANGELOG.md)
    - If that PR was just merged, runs `changeset publish` to publish to npm with provenance
 
+### Changelog generation (resilient wrapper)
+
+The `changelog` entry in `.changeset/config.json` points to `.changeset/changelog.cjs`
+instead of `@changesets/changelog-github` directly. That wrapper still uses the
+GitHub generator (rich entries with PR/author links) but makes it **best-effort**:
+it retries the GitHub GraphQL call and, if GitHub is unreachable, falls back to
+`@changesets/changelog-git` (plain entries with commit SHAs). This prevents a
+transient GitHub API failure (`Failed to parse data from GitHub` /
+`Premature close`) from aborting the whole "version packages" step.
+
+- Tunable via env vars `CHANGELOG_GITHUB_ATTEMPTS` (default 3) and
+  `CHANGELOG_GITHUB_RETRY_MS` (default 1000) — used by the wrapper's tests.
+- `@changesets/changelog-git` is pinned as an explicit devDependency so the
+  fallback never relies on transitive hoisting.
+
 ## Homebrew Formula
 
 Planned for future distribution as a separate brew formula for macOS/Linux/Windows. No implementation yet.
