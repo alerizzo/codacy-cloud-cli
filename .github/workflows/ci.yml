@@ -39,7 +39,9 @@ jobs:
         run: npm test
 
   changeset-check:
-    if: github.event_name == 'pull_request'
+    # Skip the changesets bot's "version packages" PR: it consumes (deletes)
+    # changesets rather than adding them, so it would always fail this check.
+    if: github.event_name == 'pull_request' && github.head_ref != 'changeset-release/main'
     runs-on: ubuntu-latest
 
     steps:
