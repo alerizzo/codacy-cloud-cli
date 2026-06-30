@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { OpenAPI } from "./api/client/core/OpenAPI";
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { version } = require("../package.json") as { version: string };
+import { cliVersion } from "./version";
+import { getOutputFormat } from "./utils/output";
+import { maybeNotifyUpdate } from "./utils/update-check";
 import { registerInfoCommand } from "./commands/info";
 import { registerRepositoriesCommand } from "./commands/repositories";
 import { registerRepositoryCommand } from "./commands/repository";
@@ -29,8 +30,21 @@ OpenAPI.HEADERS = {
 program
   .name("codacy-cloud-cli")
   .description("A CLI tool to interact with the Codacy API")
-  .version(version)
-  .option("-o, --output <format>", "output format (table or json)", "table");
+  .version(cliVersion)
+  .option("-o, --output <format>", "output format (table or json)", "table")
+  // update-notifier reads `--no-update-notifier` straight from argv to opt out.
+  // Declared here (and on every subcommand below) so Commander accepts the flag
+  // instead of failing with "unknown option" when a user passes it.
+  .option("--no-update-notifier", "disable the 'update available' notice");
+
+// Before any command runs, schedule the "update available" notice. The hook
+// fires after option parsing, so the command's output format is known; the
+// notice itself is gated to `table` output and printed to stderr on exit.
+// Wiring it here (rather than per-command) keeps the entry point thin and avoids
+// churn across every command file.
+program.hook("preAction", (_thisCommand, actionCommand) => {
+  maybeNotifyUpdate(getOutputFormat(actionCommand));
+});
 
 registerInfoCommand(program);
 registerRepositoriesCommand(program);
@@ -46,5 +60,12 @@ registerPatternsCommand(program);
 registerPatternCommand(program);
 registerLoginCommand(program);
 registerLogoutCommand(program);
+
+// Also accept `--no-update-notifier` after a subcommand (e.g.
+// `codacy info --no-update-notifier`). update-notifier reads the flag from argv;
+// we only need Commander not to reject it as an unknown option.
+for (const cmd of program.commands) {
+  cmd.option("--no-update-notifier", "disable the 'update available' notice");
+}
 
 program.parse(process.argv);
