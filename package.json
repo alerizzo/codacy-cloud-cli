@@ -56,11 +56,11 @@
     "numeral": "2.0.6",
     "ora": "7.0.1",
     "pluralize": "8.0.0",
-    "update-notifier": "^5.1.0"
+    "update-notifier": "5.1.0"
   },
   "overrides": {
-    "package-json": "^7.0.0",
-    "got": "^11.8.6"
+    "package-json": "7.0.0",
+    "got": "11.8.6"
   },
   "devDependencies": {
     "@changesets/changelog-git": "0.2.1",
@@ -71,7 +71,7 @@
     "@types/node": "22.15.21",
     "@types/numeral": "2.0.5",
     "@types/pluralize": "0.0.33",
-    "@types/update-notifier": "^5.1.0",
+    "@types/update-notifier": "5.1.0",
     "typescript": "5.8.3",
     "vitest": "4.0.18"
   }

@@ -41,9 +41,12 @@ const DISABLE_ENV_VAR = "CODACY_DISABLE_UPDATE_CHECK";
  */
 export function maybeNotifyUpdate(format?: OutputFormat): void {
   try {
-    // Full opt-out: bail before constructing the notifier so no background
-    // network/disk lookup is even scheduled. (update-notifier also honors
-    // NO_UPDATE_NOTIFIER and --no-update-notifier on its own.)
+    // Codacy-branded hard opt-out: bail before even constructing the notifier.
+    // The other opt-outs (NO_UPDATE_NOTIFIER, --no-update-notifier, CI,
+    // NODE_ENV=test) are handled inside update-notifier itself: its constructor
+    // marks the instance `disabled`, and the check() it runs on construction
+    // returns early — before any disk read or network spawn — so those paths
+    // also incur no background work, just one cheap object construction.
     if (process.env[DISABLE_ENV_VAR]) return;
 
     // Construct first (even in json mode): this warms the cached result via
