@@ -262,18 +262,19 @@ export function formatGrade(gradeLetter: string | undefined): string {
 /**
  * Render a numeric metric as a table cell: abbreviated via `formatCount`
  * ("1.2k"), or a dim "-" when the value is absent (e.g. complexity/duplication
- * that Codacy didn't compute for a file or folder).
+ * that Codacy didn't compute for a file or folder). Handles both `undefined`
+ * and `null` — the API may return either for an uncomputed metric.
  */
-export function formatCountCell(n: number | undefined): string {
-  return n === undefined ? ansis.dim("-") : formatCount(n);
+export function formatCountCell(n: number | undefined | null): string {
+  return n === undefined || n === null ? ansis.dim("-") : formatCount(n);
 }
 
 /**
  * Render a coverage percentage as a table cell ("76.3%"), or a dim "-" when no
- * coverage data is available.
+ * coverage data is available (`undefined` or `null`).
  */
-export function formatCoverageCell(pct: number | undefined): string {
-  return pct === undefined ? ansis.dim("-") : `${pct.toFixed(1)}%`;
+export function formatCoverageCell(pct: number | undefined | null): string {
+  return pct === undefined || pct === null ? ansis.dim("-") : `${pct.toFixed(1)}%`;
 }
 
 /**

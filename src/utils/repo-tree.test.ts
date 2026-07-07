@@ -9,6 +9,7 @@ import {
   fetchAllFiles,
   resolveSort,
   resolveDirection,
+  mapWithConcurrency,
 } from "./repo-tree";
 
 vi.mock("child_process", () => ({ execFileSync: vi.fn() }));
@@ -32,6 +33,11 @@ describe("normalizeRepoPath", () => {
   it("trims whitespace and treats an empty string as the root", () => {
     expect(normalizeRepoPath("   ")).toBe("");
     expect(normalizeRepoPath("")).toBe("");
+  });
+
+  it("treats '.' and './' as the repository root", () => {
+    expect(normalizeRepoPath(".")).toBe("");
+    expect(normalizeRepoPath("./")).toBe("");
   });
 });
 
@@ -115,6 +121,32 @@ describe("resolveDirection", () => {
 
   it("throws on an invalid direction", () => {
     expect(() => resolveDirection("sideways")).toThrow(/Invalid --direction/);
+  });
+});
+
+describe("mapWithConcurrency", () => {
+  it("runs every item while never exceeding the concurrency limit", async () => {
+    const order: number[] = [];
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const items = [0, 1, 2, 3, 4, 5, 6];
+
+    await mapWithConcurrency(items, 2, async (item) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await Promise.resolve();
+      order.push(item);
+      inFlight--;
+    });
+
+    expect(order.sort((a, b) => a - b)).toEqual(items);
+    expect(maxInFlight).toBeLessThanOrEqual(2);
+  });
+
+  it("handles an empty list without invoking the worker", async () => {
+    const fn = vi.fn(async () => {});
+    await mapWithConcurrency([], 4, fn);
+    expect(fn).not.toHaveBeenCalled();
   });
 });
 

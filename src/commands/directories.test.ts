@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Command } from "commander";
 import { registerDirectoriesCommand } from "./directories";
 import { RepositoryService } from "../api/client/services/RepositoryService";
+import { consoleOutput } from "../test-support";
 
 vi.mock("../api/client/services/RepositoryService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
@@ -20,15 +21,6 @@ function createProgram(): Command {
   program.option("-o, --output <format>", "output format", "table");
   registerDirectoriesCommand(program);
   return program;
-}
-
-// Joined console output with ANSI color/style codes stripped, so assertions can
-// match plain text (dim() otherwise splits the tree connector from its name).
-function getOutput(): string {
-  return (console.log as ReturnType<typeof vi.fn>).mock.calls
-    .map((c) => c[0])
-    .join("\n")
-    .replace(new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g"), "");
 }
 
 function dir(name: string, path = name) {
@@ -66,7 +58,7 @@ describe("directories command", () => {
       "repo",
     ]);
 
-    const out = getOutput();
+    const out = consoleOutput();
     expect(out).toContain("▸ pages");
     expect(out).toContain("▸ components");
     expect(out).toContain("2 directories");
@@ -101,7 +93,7 @@ describe("directories command", () => {
       vi.mocked(RepositoryService.listDirectories).mock.calls[1][4],
     ).toBe("pages");
 
-    const out = getOutput();
+    const out = consoleOutput();
     expect(out).toContain("▸ pages");
     expect(out).toContain("└─ account");
     expect(out).toContain("└─ admin");
@@ -131,7 +123,7 @@ describe("directories command", () => {
       "--plus-children",
     ]);
 
-    expect(getOutput()).toContain("2 directories, 3 subdirectories");
+    expect(consoleOutput()).toContain("2 directories, 3 subdirectories");
   });
 
   it("forwards --sort/--direction to the root and children listings", async () => {
@@ -206,7 +198,7 @@ describe("directories command", () => {
       "--plus-children",
     ]);
 
-    const out = getOutput();
+    const out = consoleOutput();
     expect(out).toContain('"children"');
     expect(out).toContain('"name": "account"');
   });
@@ -226,7 +218,7 @@ describe("directories command", () => {
       "repo",
     ]);
 
-    const out = getOutput();
+    const out = consoleOutput();
     expect(out).toContain("No directories found");
   });
 

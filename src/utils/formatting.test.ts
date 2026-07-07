@@ -216,8 +216,9 @@ describe("formatCountCell", () => {
     expect(formatCountCell(0)).toBe("0");
   });
 
-  it("renders a dash when the value is absent", () => {
+  it("renders a dash when the value is absent (undefined or null)", () => {
     expect(formatCountCell(undefined)).toBe("-");
+    expect(formatCountCell(null)).toBe("-");
   });
 });
 
@@ -227,8 +228,9 @@ describe("formatCoverageCell", () => {
     expect(formatCoverageCell(0)).toBe("0.0%");
   });
 
-  it("renders a dash when coverage is absent", () => {
+  it("renders a dash when coverage is absent (undefined or null)", () => {
     expect(formatCoverageCell(undefined)).toBe("-");
+    expect(formatCoverageCell(null)).toBe("-");
   });
 });
 

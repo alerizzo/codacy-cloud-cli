@@ -47,11 +47,34 @@ export function getCwdRepoRelativePath(): string {
  * an empty string.
  */
 export function normalizeRepoPath(input: string): string {
-  return input
-    .trim()
+  const trimmed = input.trim();
+  // "." / "./" mean "here" — i.e. the current scope, which for the API is root.
+  if (trimmed === "." || trimmed === "./") return "";
+  return trimmed
     .replace(/^\.\/+/, "") // strip a leading "./"
     .replace(/^\/+/, "") // strip leading slashes
     .replace(/\/+$/, ""); // strip trailing slashes
+}
+
+/**
+ * Run `fn` over `items` with at most `limit` promises in flight at once — a
+ * bounded alternative to `Promise.all(items.map(...))` that avoids flooding the
+ * API with unbounded concurrent requests (each item may itself paginate).
+ */
+export async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next++;
+      await fn(items[index]);
+    }
+  };
+  const size = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: size }, () => worker()));
 }
 
 /**

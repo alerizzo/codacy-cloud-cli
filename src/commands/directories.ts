@@ -4,74 +4,163 @@ import ansis from "ansis";
 import pluralize from "pluralize";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
-import {
-  createTable,
-  getOutputFormat,
-  pickDeep,
-  printJson,
-} from "../utils/output";
-import {
-  formatGrade,
-  formatCountCell,
-  formatCoverageCell,
-} from "../utils/formatting";
+import { createTable, getOutputFormat, printJson } from "../utils/output";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import {
   fetchAllDirectories,
+  mapWithConcurrency,
   resolveListingPath,
   resolveSort,
   resolveDirection,
   SORT_FIELDS,
 } from "../utils/repo-tree";
+import {
+  FOLDER_GLYPH,
+  CHILD_CONNECTOR,
+  TABLE_HEAD,
+  displayPath,
+  metricCells,
+  projectDir,
+} from "./tree-view";
 import { DirectoryWithAnalysisInfo } from "../api/client/models/DirectoryWithAnalysisInfo";
 
-// Leading marker for a directory row (see ls.ts for the rationale); children
-// listed via --plus-children are indented under their parent with a tree
-// connector instead of the glyph.
-const FOLDER_GLYPH = "▸";
-const CHILD_CONNECTOR = "    └─ ";
-
-const TABLE_HEAD = [
-  "Name",
-  "Grade",
-  "Issues",
-  "Complexity",
-  "Duplication",
-  "Coverage",
-];
+// Cap on concurrent children fetches (--plus-children) so a directory with many
+// sub-folders doesn't flood the API with unbounded parallel requests.
+const CHILDREN_CONCURRENCY = 10;
 
 // A directory optionally carrying its immediate sub-directories (--plus-children).
 interface DirectoryNode extends DirectoryWithAnalysisInfo {
   children?: DirectoryWithAnalysisInfo[];
 }
 
-/** Display path shown in the header, e.g. "/my-repo/src/website". */
-function displayPath(repository: string, targetPath: string): string {
-  return "/" + [repository, targetPath].filter(Boolean).join("/");
+interface DirOptions {
+  path?: string;
+  branch?: string;
+  plusChildren?: boolean;
+  sort?: string;
+  direction?: string;
 }
 
-const DIR_JSON_FIELDS = [
-  "path",
-  "name",
-  "gradeLetter",
-  "totalIssues",
-  "complexity",
-  "numberOfClones",
-  "coverageWithDecimals",
-  "nrFiles",
-];
+interface DirContext {
+  provider: string;
+  organization: string;
+  repository: string;
+  targetPath: string;
+  branch?: string;
+  sort?: string;
+  direction?: string;
+  useServerSort: boolean;
+  plusChildren: boolean;
+}
 
-/** Metric cells shared by parent and child directory rows. */
-function directoryMetricCells(d: DirectoryWithAnalysisInfo): string[] {
-  return [
-    formatGrade(d.gradeLetter),
-    formatCountCell(d.totalIssues),
-    // Complexity = highest file complexity under the folder (hotspots),
-    // Duplication = number of cloned blocks — matching Codacy's UI.
-    formatCountCell(d.complexity),
-    formatCountCell(d.numberOfClones),
-    formatCoverageCell(d.coverageWithDecimals),
-  ];
+function resolveDirContext(
+  providerArg: string | undefined,
+  organizationArg: string | undefined,
+  repositoryArg: string | undefined,
+  options: DirOptions,
+): DirContext {
+  const autoDetected = !(providerArg && organizationArg && repositoryArg);
+  const { provider, organization, repository } = resolveRepoArgs(
+    [providerArg, organizationArg, repositoryArg],
+    0,
+    "directories",
+    [],
+  );
+  return {
+    provider,
+    organization,
+    repository,
+    targetPath: resolveListingPath(options.path, autoDetected),
+    branch: options.branch,
+    sort: resolveSort(options.sort, "directory"),
+    direction: resolveDirection(options.direction),
+    useServerSort: options.sort !== undefined || options.direction !== undefined,
+    plusChildren: !!options.plusChildren,
+  };
+}
+
+/**
+ * Fetch the directories at the path (all pages), and — with --plus-children —
+ * each one's immediate sub-directories (bounded concurrency). Ordering is by
+ * name unless a server-side sort was requested.
+ */
+async function fetchDirTree(ctx: DirContext): Promise<DirectoryNode[]> {
+  const sortByName = (arr: DirectoryWithAnalysisInfo[]) => {
+    if (!ctx.useServerSort) arr.sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  const dirs: DirectoryNode[] = await fetchAllDirectories(
+    ctx.provider,
+    ctx.organization,
+    ctx.repository,
+    ctx.branch,
+    ctx.targetPath,
+    ctx.sort,
+    ctx.direction,
+  );
+  sortByName(dirs);
+
+  if (ctx.plusChildren) {
+    await mapWithConcurrency(dirs, CHILDREN_CONCURRENCY, async (d) => {
+      const children = await fetchAllDirectories(
+        ctx.provider,
+        ctx.organization,
+        ctx.repository,
+        ctx.branch,
+        d.path,
+        ctx.sort,
+        ctx.direction,
+      );
+      sortByName(children);
+      d.children = children;
+    });
+  }
+  return dirs;
+}
+
+function dirJson(ctx: DirContext, dirs: DirectoryNode[]): Record<string, unknown> {
+  return {
+    path: ctx.targetPath,
+    directories: dirs.map((d) => {
+      const projected = projectDir(d);
+      if (d.children) projected.children = d.children.map(projectDir);
+      return projected;
+    }),
+  };
+}
+
+function dirHeader(ctx: DirContext, dirs: DirectoryNode[]): string {
+  let header =
+    `${displayPath(ctx.repository, ctx.targetPath)} — ` +
+    `${dirs.length} ${pluralize("directory", dirs.length)}`;
+  if (ctx.plusChildren) {
+    const subdirs = dirs.reduce((n, d) => n + (d.children?.length ?? 0), 0);
+    header += `, ${subdirs} ${pluralize("subdirectory", subdirs)}`;
+  }
+  return header;
+}
+
+function renderDir(ctx: DirContext, dirs: DirectoryNode[]): void {
+  if (dirs.length === 0) {
+    console.log(
+      ansis.dim(
+        `\nNo directories found at ${displayPath(ctx.repository, ctx.targetPath)}.`,
+      ),
+    );
+    return;
+  }
+  console.log(ansis.bold(`\n${dirHeader(ctx, dirs)}\n`));
+  const table = createTable({ head: TABLE_HEAD });
+  for (const d of dirs) {
+    table.push([`${FOLDER_GLYPH} ${d.name}`, ...metricCells(d)]);
+    for (const child of d.children ?? []) {
+      table.push([
+        `${ansis.dim(CHILD_CONNECTOR)}${child.name}`,
+        ...metricCells(child),
+      ]);
+    }
+  }
+  console.log(table.toString());
 }
 
 export function registerDirectoriesCommand(program: Command) {
@@ -96,10 +185,7 @@ export function registerDirectoriesCommand(program: Command) {
       "-c, --plus-children",
       "also list each directory's immediate sub-directories",
     )
-    .option(
-      "-S, --sort <field>",
-      `sort by one of: ${SORT_FIELDS.join(", ")}`,
-    )
+    .option("-S, --sort <field>", `sort by one of: ${SORT_FIELDS.join(", ")}`)
     .option(
       "-d, --direction <direction>",
       "sort direction: asc (ascending) or desc (descending)",
@@ -120,125 +206,29 @@ Examples:
       providerArg: string | undefined,
       organizationArg: string | undefined,
       repositoryArg: string | undefined,
-      options: {
-        path?: string;
-        branch?: string;
-        plusChildren?: boolean;
-        sort?: string;
-        direction?: string;
-      },
+      options: DirOptions,
     ) {
       try {
         checkApiToken();
         const format = getOutputFormat(this);
-
-        const autoDetected = !(providerArg && organizationArg && repositoryArg);
-        const { provider, organization, repository } = resolveRepoArgs(
-          [providerArg, organizationArg, repositoryArg],
-          0,
-          "directories",
-          [],
+        const ctx = resolveDirContext(
+          providerArg,
+          organizationArg,
+          repositoryArg,
+          options,
         );
-        const targetPath = resolveListingPath(options.path, autoDetected);
-
-        // Sorting/direction, when requested, are applied server-side to both the
-        // top-level listing and each children listing; otherwise order by name.
-        const sort = resolveSort(options.sort, "directory");
-        const direction = resolveDirection(options.direction);
-        const useServerSort =
-          options.sort !== undefined || options.direction !== undefined;
-        const sortByName = (arr: DirectoryWithAnalysisInfo[]) => {
-          if (!useServerSort) arr.sort((a, b) => a.name.localeCompare(b.name));
-        };
 
         const spinner = ora(
-          `Listing directories in ${displayPath(repository, targetPath)}...`,
+          `Listing directories in ${displayPath(ctx.repository, ctx.targetPath)}...`,
         ).start();
-
-        const dirs: DirectoryNode[] = await fetchAllDirectories(
-          provider,
-          organization,
-          repository,
-          options.branch,
-          targetPath,
-          sort,
-          direction,
-        );
-        sortByName(dirs);
-
-        // --plus-children: pull each folder's immediate sub-folders (one extra
-        // level), concurrently. Each of these is itself fully paginated.
-        if (options.plusChildren) {
-          spinner.text = "Fetching sub-directories...";
-          await Promise.all(
-            dirs.map(async (d) => {
-              const children = await fetchAllDirectories(
-                provider,
-                organization,
-                repository,
-                options.branch,
-                d.path,
-                sort,
-                direction,
-              );
-              sortByName(children);
-              d.children = children;
-            }),
-          );
-        }
-
+        const dirs = await fetchDirTree(ctx);
         spinner.stop();
 
         if (format === "json") {
-          printJson({
-            path: targetPath,
-            directories: dirs.map((d) => {
-              const projected = pickDeep(d, DIR_JSON_FIELDS);
-              if (d.children) {
-                projected.children = d.children.map((c) =>
-                  pickDeep(c, DIR_JSON_FIELDS),
-                );
-              }
-              return projected;
-            }),
-          });
+          printJson(dirJson(ctx, dirs));
           return;
         }
-
-        if (dirs.length === 0) {
-          console.log(
-            ansis.dim(
-              `\nNo directories found at ${displayPath(repository, targetPath)}.`,
-            ),
-          );
-          return;
-        }
-
-        let header =
-          `${displayPath(repository, targetPath)} — ` +
-          `${dirs.length} ${pluralize("directory", dirs.length)}`;
-        if (options.plusChildren) {
-          const subdirs = dirs.reduce(
-            (n, d) => n + (d.children?.length ?? 0),
-            0,
-          );
-          header += `, ${subdirs} ${pluralize("subdirectory", subdirs)}`;
-        }
-        console.log(ansis.bold(`\n${header}\n`));
-
-        const table = createTable({ head: TABLE_HEAD });
-
-        for (const d of dirs) {
-          table.push([`${FOLDER_GLYPH} ${d.name}`, ...directoryMetricCells(d)]);
-          for (const child of d.children ?? []) {
-            table.push([
-              `${ansis.dim(CHILD_CONNECTOR)}${child.name}`,
-              ...directoryMetricCells(child),
-            ]);
-          }
-        }
-
-        console.log(table.toString());
+        renderDir(ctx, dirs);
       } catch (err) {
         handleError(err);
       }

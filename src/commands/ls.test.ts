@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Command } from "commander";
 import { registerLsCommand } from "./ls";
 import { RepositoryService } from "../api/client/services/RepositoryService";
+import { consoleOutput } from "../test-support";
 
 vi.mock("../api/client/services/RepositoryService");
 vi.mock("../utils/credentials", () => ({ loadCredentials: vi.fn(() => null) }));
@@ -20,15 +21,6 @@ function createProgram(): Command {
   program.option("-o, --output <format>", "output format", "table");
   registerLsCommand(program);
   return program;
-}
-
-// Joined console output with ANSI color/style codes stripped, so assertions can
-// match plain text (dim() otherwise splits a glyph from its name with a reset).
-function getOutput(): string {
-  return (console.log as ReturnType<typeof vi.fn>).mock.calls
-    .map((c) => c[0])
-    .join("\n")
-    .replace(new RegExp(String.fromCharCode(27) + "\\[[0-9;]*m", "g"), "");
 }
 
 const mockDirs = [
@@ -80,7 +72,7 @@ describe("ls command", () => {
     const program = createProgram();
     await program.parseAsync(["node", "test", "ls", "gh", "org", "repo"]);
 
-    const out = getOutput();
+    const out = consoleOutput();
     expect(out).toContain("▸ pages");
     expect(out).toContain("· common.js");
     // directory row appears before the file row
@@ -171,7 +163,7 @@ describe("ls command", () => {
     const program = createProgram();
     await program.parseAsync(["node", "test", "ls", "gh", "org", "repo"]);
 
-    const out = getOutput();
+    const out = consoleOutput();
     expect(out).toContain("▸ pages");
     expect(out).toContain("▸ components");
     expect(out).toContain("2 directories");
@@ -277,7 +269,7 @@ describe("ls command", () => {
       "find",
     ]);
 
-    const out = getOutput();
+    const out = consoleOutput();
     expect(out).toContain("· src/commands/finding.ts");
     expect(out).toContain('matching "find"');
     // at repo root the search term is sent as-is (no path prefix)
@@ -299,7 +291,7 @@ describe("ls command", () => {
       "nope",
     ]);
 
-    expect(getOutput()).toContain('No files matching "nope"');
+    expect(consoleOutput()).toContain('No files matching "nope"');
   });
 
   it("outputs JSON with a { path, directories, files } shape", async () => {
@@ -317,7 +309,7 @@ describe("ls command", () => {
       "repo",
     ]);
 
-    const out = getOutput();
+    const out = consoleOutput();
     expect(out).toContain('"directories"');
     expect(out).toContain('"files"');
     expect(out).toContain('"name": "pages"');
@@ -330,7 +322,7 @@ describe("ls command", () => {
     const program = createProgram();
     await program.parseAsync(["node", "test", "ls", "gh", "org", "repo"]);
 
-    const out = getOutput();
+    const out = consoleOutput();
     expect(out).toContain("Nothing found");
   });
 
