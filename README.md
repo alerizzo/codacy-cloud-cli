@@ -78,6 +78,8 @@ Supported providers: GitHub (`gh`), GitLab (`gl`), Bitbucket (`bb`).
 | `info` | Show authenticated user info and their organizations |
 | `repositories <provider> <org>` | List repositories for an organization |
 | `repository [provider] [org] [repo]` | Show metrics for a repository, or add/remove/follow/unfollow/reanalyze it (optionally waiting for results) |
+| `ls [provider] [org] [repo]` | List (or search) directories and files at a path in a repository, with quality metrics and sorting |
+| `directories [provider] [org] [repo]` | List directories at a path in a repository (optionally one level of sub-directories), with quality metrics |
 | `issues [provider] [org] [repo]` | Search issues in a repository with filters |
 | `issue [provider] [org] [repo] <id>` | Show details for a single issue, or ignore/unignore it |
 | `findings [provider] [org] [repo]` | Show security findings for a repository or organization |

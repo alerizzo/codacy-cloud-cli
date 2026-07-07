@@ -8,6 +8,9 @@ import {
   formatDependencyChain,
   formatDependencyChainsLine,
   formatDependencyChainsBlock,
+  formatGrade,
+  formatCountCell,
+  formatCoverageCell,
 } from "./formatting";
 
 // Mock ansis to return raw text for easier testing
@@ -190,6 +193,42 @@ describe("formatDuration", () => {
 
   it("clamps negatives to 0s", () => {
     expect(formatDuration(-5_000)).toBe("0s");
+  });
+});
+
+describe("formatGrade", () => {
+  // ansis is mocked to identity, so we assert on the letter and N/A fallback.
+  it("returns the grade letter for A–F including E", () => {
+    for (const g of ["A", "B", "C", "D", "E", "F"]) {
+      expect(formatGrade(g)).toBe(g);
+    }
+  });
+
+  it("returns N/A when the grade is missing", () => {
+    expect(formatGrade(undefined)).toBe("N/A");
+    expect(formatGrade("")).toBe("N/A");
+  });
+});
+
+describe("formatCountCell", () => {
+  it("abbreviates a count", () => {
+    expect(formatCountCell(1200)).toBe("1.2k");
+    expect(formatCountCell(0)).toBe("0");
+  });
+
+  it("renders a dash when the value is absent", () => {
+    expect(formatCountCell(undefined)).toBe("-");
+  });
+});
+
+describe("formatCoverageCell", () => {
+  it("renders a one-decimal percentage", () => {
+    expect(formatCoverageCell(76.3)).toBe("76.3%");
+    expect(formatCoverageCell(0)).toBe("0.0%");
+  });
+
+  it("renders a dash when coverage is absent", () => {
+    expect(formatCoverageCell(undefined)).toBe("-");
   });
 });
 

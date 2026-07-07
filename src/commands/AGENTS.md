@@ -109,6 +109,65 @@ Instead of a dedicated "Visibility" column (wastes horizontal space), public rep
 - **`--reanalyze` mode** (`-R`): fetches HEAD commit SHA, calls `RepositoryService.reanalyzeCommitById`; early return
 - **`--reanalyze-and-wait` mode** (`-w`): blocking variant — see "Reanalyze and wait" below. Baseline comes from `issuesOverview`; polling reads the repo's first commit via `listRepositoryCommits(limit=1)` analysis timestamps
 
+## ls command (`ls.ts`) and directories command (`directories.ts`)
+
+Repository-level "file browser" commands built on `RepositoryService.listFiles`
+and `listDirectories`. `ls` lists directories **and** files at a path;
+`directories` (alias `dirs`) lists folders only, with `-c, --plus-children` to
+also pull each folder's immediate sub-folders (one extra level).
+
+- **Repo + path resolution**: optional `[provider] [organization] [repository]`
+  positionals via `resolveRepoArgs(..., 0, ...)` (auto-detected from the git
+  remote when omitted). The listed path comes from `resolveListingPath(options.path, autoDetected)`
+  in `utils/repo-tree.ts`: an explicit `--path` wins; otherwise, when the repo
+  was auto-detected, the current working directory relative to the git root
+  (`getCwdRepoRelativePath` → `git rev-parse --show-toplevel` + `path.relative`);
+  otherwise the repo root. `autoDetected = !(provider && organization && repository)`.
+- **Fetch-all, no pagination warning (deliberate deviation)**: unlike every other
+  paginated command, these two fetch *all* pages (`fetchAllDirectories` /
+  `fetchAllFiles` loop over `pagination.cursor`) and do **not** call
+  `printPaginationWarning` — the whole listing must be shown. Do not "fix" this
+  by adding a warning.
+- **Explicit empty-string path**: the repo root is listed by passing `path = ""`
+  (not `undefined`). The generated client serializes `""` as `path=`, which the
+  API treats as "root, non-recursive"; `undefined` would omit the param and make
+  `listFiles` recursive across the whole repo. `fetchAll*` always take a `string`.
+- **Row markers (no emojis)**: `▸` (U+25B8) for folders, dim `·` for files.
+  `directories --plus-children` renders each child on its own indented row with a
+  `└─` connector under its parent (`DirectoryNode.children`).
+- **Metric columns**: Name, Grade, Issues, Complexity, Duplication, Coverage.
+  Grade via `formatGrade` (A/B green, C yellow, D/E/F red — Codacy folder/file
+  grades can be E). Issues/Complexity/Duplication via `formatCountCell`
+  (abbreviated, dim `-` when absent). Complexity is `complexity` (for a folder,
+  the *highest* file complexity under it — surfaces hotspots — not the
+  `complexitySum` total). Duplication is `numberOfClones` (number of cloned
+  code blocks, matching Codacy's UI — not `duplication`, which is duplicated
+  *lines*). Coverage via `formatCoverageCell` (`coverageWithDecimals`). Only the
+  Grade is colored — directory/file items carry no `goals` thresholds, so
+  metrics are not threshold-colored.
+- **Ordering / `--sort` + `--direction`**: with no sort flags, results are
+  sorted client-side by name (directories) / basename (files), ascending. When
+  `--sort` or `--direction` is given, ordering is delegated to the API (`sort`/
+  `direction` params, order preserved across pages) and the client sort is
+  skipped. `resolveSort`/`resolveDirection` (in `repo-tree.ts`) validate the
+  values and map them: CLI `name` → API `filename` for the files endpoint;
+  `ascending`/`descending` (and `asc`/`desc`) → `asc`/`desc`. In `ls`,
+  directories and files are always sorted **independently** and never merged
+  (dirs fully paginated + sorted, then files) so the type grouping holds. In
+  `directories`, the same sort is applied to the top-level and each
+  `--plus-children` listing.
+- **`ls --search <term>` (files only)**: `listDirectories` has no `search`, so
+  search mode lists files only (directories skipped). The folder scope is folded
+  into the search string as `<path>/%<term>` (just `<term>` at the repo root) and
+  `path` is **not** sent — otherwise the API would restrict to immediate
+  children. Results show each file's full repository-relative path (not just the
+  basename), since matches span folders.
+- **`directories --plus-children` header**: appends `, M subdirectories` where M
+  is the summed count of children across all listed directories.
+- **Aliases**: `directories` → `dirs`; `ls` has no alias (already the minimal
+  form).
+- JSON: `ls` → `{ path, directories, files }`; `directories` → `{ path, directories: [{…, children?}] }`, each item projected via `pickDeep`.
+
 ## Shared Formatting Utilities (`utils/formatting.ts`)
 
 Several helpers are shared between `repository.ts` and `pull-request.ts` via `utils/formatting.ts`:

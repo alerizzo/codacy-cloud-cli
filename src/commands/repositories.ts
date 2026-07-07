@@ -12,7 +12,7 @@ import {
   printPaginationWarning,
 } from "../utils/output";
 import { AnalysisService } from "../api/client/services/AnalysisService";
-import { formatCount } from "../utils/formatting";
+import { formatCount, formatGrade } from "../utils/formatting";
 import pluralize from "pluralize";
 
 /**
@@ -33,19 +33,6 @@ function formatMetric(
   }
   // mode === "min"
   return value < threshold ? ansis.red(display) : ansis.green(display);
-}
-
-function formatGrade(gradeLetter: string | undefined): string {
-  if (!gradeLetter) return "N/A";
-  const colors: Record<string, (s: string) => string> = {
-    A: ansis.green,
-    B: ansis.green,
-    C: ansis.yellow,
-    D: ansis.red,
-    F: ansis.red,
-  };
-  const colorFn = colors[gradeLetter] || ((s: string) => s);
-  return colorFn(gradeLetter);
 }
 
 export function registerRepositoriesCommand(program: Command) {
