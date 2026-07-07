@@ -4,6 +4,7 @@
     "node_modules",
     "dist",
     "**/*.test.ts",
+    "src/test-support.ts",
     "vitest.config.mts"
   ]
 }

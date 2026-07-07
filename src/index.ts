@@ -7,6 +7,8 @@ import { maybeNotifyUpdate } from "./utils/update-check";
 import { registerInfoCommand } from "./commands/info";
 import { registerRepositoriesCommand } from "./commands/repositories";
 import { registerRepositoryCommand } from "./commands/repository";
+import { registerLsCommand } from "./commands/ls";
+import { registerDirectoriesCommand } from "./commands/directories";
 import { registerPullRequestCommand } from "./commands/pull-request";
 import { registerIssuesCommand } from "./commands/issues";
 import { registerIssueCommand } from "./commands/issue";
@@ -49,6 +51,8 @@ program.hook("preAction", (_thisCommand, actionCommand) => {
 registerInfoCommand(program);
 registerRepositoriesCommand(program);
 registerRepositoryCommand(program);
+registerLsCommand(program);
+registerDirectoriesCommand(program);
 registerPullRequestCommand(program);
 registerIssuesCommand(program);
 registerIssueCommand(program);

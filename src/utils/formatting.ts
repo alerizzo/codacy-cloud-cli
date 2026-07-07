@@ -241,6 +241,43 @@ export function formatCount(n: number): string {
 }
 
 /**
+ * Color a quality grade letter: A/B green, C yellow, D/E/F red, anything else
+ * uncolored. Returns "N/A" when no grade is available. Codacy folder/file
+ * grades can be E (not just A–D/F), so it is colored red like D/F.
+ */
+export function formatGrade(gradeLetter: string | undefined): string {
+  if (!gradeLetter) return "N/A";
+  const colors: Record<string, (s: string) => string> = {
+    A: ansis.green,
+    B: ansis.green,
+    C: ansis.yellow,
+    D: ansis.red,
+    E: ansis.red,
+    F: ansis.red,
+  };
+  const colorFn = colors[gradeLetter] || ((s: string) => s);
+  return colorFn(gradeLetter);
+}
+
+/**
+ * Render a numeric metric as a table cell: abbreviated via `formatCount`
+ * ("1.2k"), or a dim "-" when the value is absent (e.g. complexity/duplication
+ * that Codacy didn't compute for a file or folder). Handles both `undefined`
+ * and `null` — the API may return either for an uncomputed metric.
+ */
+export function formatCountCell(n: number | undefined | null): string {
+  return n === undefined || n === null ? ansis.dim("-") : formatCount(n);
+}
+
+/**
+ * Render a coverage percentage as a table cell ("76.3%"), or a dim "-" when no
+ * coverage data is available (`undefined` or `null`).
+ */
+export function formatCoverageCell(pct: number | undefined | null): string {
+  return pct === undefined || pct === null ? ansis.dim("-") : `${pct.toFixed(1)}%`;
+}
+
+/**
  * Print a bold section header, optionally with a total count.
  * e.g. printSection("Issues", 45000, "issue") → "Issues — Found 45k issues"
  */
