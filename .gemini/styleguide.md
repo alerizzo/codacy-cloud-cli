@@ -5,11 +5,15 @@ Commander.js CLI). Please weigh these before flagging style or correctness
 concerns.
 
 ## Testing
-- Tests mutate `process.env` directly: assign the variable in the test and
-  `delete` it in `beforeEach`/`afterEach` for isolation. This is the repo-wide
-  convention (see `src/utils/auth.test.ts` and ~10 other test files). Do **not**
-  suggest `vi.stubEnv` / `vi.unstubAllEnvs` — the codebase deliberately does not
-  use them, and consistency across the suite is preferred.
+- Tests mutate `process.env` directly: set the variable in `beforeEach` (which
+  re-assigns it before every test, so leakage between tests is a non-issue) and,
+  when a specific test needs it unset, `delete` it inside that test. An
+  `afterEach` cleanup block is **not** required and is **not** the convention —
+  ~13 of the 14 test files (`repositories.test.ts`, `issue.test.ts`,
+  `findings.test.ts`, …) use `beforeEach` only. Do **not** suggest adding
+  `afterEach`, and do **not** suggest `vi.stubEnv` / `vi.unstubAllEnvs` — the
+  codebase deliberately does not use them, and consistency across the suite is
+  preferred.
 - API service calls are mocked with `vi.mock(...)`; tests are co-located as
   `<module>.test.ts` next to the source.
 
