@@ -78,11 +78,28 @@ False Positive" (the bucket is keyed on FP probability vs. the configured
 threshold, so at/above threshold = a potential false positive).
 
 After the tables, a **"Suggested actions to reduce noise"** section lists patterns
-worth disabling. A pattern is "noisy" when it accounts for **≥10% of all issues**
-shown, **or** has **≥3× the average** issues-per-pattern. The owning tool is
-resolved by matching the pattern ID against each tool's `prefix` (longest match
-wins); patterns whose tool can't be resolved (no/unknown prefix) are dropped
-silently. The list is capped at 10 with a "… (N more)" note.
+worth disabling. A pattern must clear two absolute floors **and** show a relative
+signal:
+
+- **Total floor** (`NOISE_MIN_TOTAL`, 200): the section is suppressed entirely
+  unless the repo has ≥200 issues in total — on low-volume repos, disabling a rule
+  to shave a handful of issues isn't real noise reduction. Kept above the
+  per-pattern floor so it does independent work (were they equal, any pattern that
+  clears the per-pattern floor would already push the repo past an equal total
+  floor, making it dead code).
+- **Per-pattern floor** (`NOISE_MIN_PATTERN`, 100): the individual pattern must
+  have ≥100 issues on its own. Without it, a long tail of tiny patterns drags the
+  median down (e.g. to 3) so far that a pattern with only ~9 issues clears the
+  relative bar below — yet 9 issues is nothing worth disabling a rule over.
+- **Relative signal** (either one): accounts for **≥10% of all issues** shown
+  (only applied when there are **≥8 distinct patterns**, since with fewer an even
+  split already exceeds 10% each), **or** has **≥3× the median** issues-per-pattern.
+  The median (not the mean) is used so a single huge pattern can't inflate the
+  baseline and mask smaller-but-still-disproportionate patterns.
+
+The owning tool is resolved by matching the pattern ID against each tool's
+`prefix` (longest match wins); patterns whose tool can't be resolved (no/unknown
+prefix) are dropped silently. The list is capped at 10 with a "… (N more)" note.
 
 The suggested step depends on **how the pattern is managed**, since not every
 pattern can be disabled through the CLI:

@@ -376,8 +376,9 @@ describe("issues command", () => {
     });
 
     it("shows no suggestions and skips the tools fetch when nothing is noisy", async () => {
-      // Twelve evenly-sized patterns: each is ~8.3% of total and equal to the
-      // average, so none crosses the >=10% or >=3x-average thresholds.
+      // Twelve evenly-sized patterns: each is ~8.3% of total (below the >=10%
+      // share floor of 120) and equal to the median (below the >=3x-median floor
+      // of 300), so none crosses either threshold.
       const patterns = Array.from({ length: 12 }, (_, i) => ({
         id: `Tool_${i}`,
         title: `Pattern ${i}`,
@@ -404,6 +405,169 @@ describe("issues command", () => {
 
       const output = getAllOutput();
       expect(output).not.toContain("Suggested actions to reduce noise");
+      expect(ToolsService.listTools).not.toHaveBeenCalled();
+    });
+
+    it("makes no suggestions below the absolute total floor", async () => {
+      // A single pattern of 120 that clears the per-pattern floor (100) and is
+      // disproportionate (median 6, 3x = 18; 80% share), so everything except the
+      // total floor would flag it. But the repo has only 150 issues total, below
+      // NOISE_MIN_TOTAL (200) — so the whole section is suppressed regardless.
+      const patterns = [
+        { id: "Bandit_B101", title: "Use of assert detected", total: 120 },
+        ...Array.from({ length: 5 }, (_, i) => ({
+          id: `Other_${i}`,
+          title: `Pattern ${i}`,
+          total: 6,
+        })),
+      ];
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: {
+          counts: {
+            categories: [],
+            levels: [{ name: "Warning", total: 150 }],
+            languages: [],
+            tags: [],
+            patterns,
+            authors: [],
+            potentialFalsePositives: [],
+          },
+        },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Suggested actions to reduce noise");
+      // Nothing is noisy, so the tools lookup is skipped entirely.
+      expect(ToolsService.listTools).not.toHaveBeenCalled();
+    });
+
+    it("does not apply the share rule when there are too few patterns", async () => {
+      // Five patterns of comparable size: {120, 80, 80, 80, 80}, total 440.
+      // The 120 is 27% of the total, but with only 5 patterns an even split is
+      // already 20% each, so the share rule is disabled. And 120 < 3x median(80)
+      // = 240, so the multiple rule doesn't fire either → nothing is noisy.
+      const patterns = [
+        { id: "Bandit_B101", title: "Use of assert detected", total: 120 },
+        ...Array.from({ length: 4 }, (_, i) => ({
+          id: `Other_${i}`,
+          title: `Pattern ${i}`,
+          total: 80,
+        })),
+      ];
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: {
+          counts: {
+            categories: [],
+            levels: [{ name: "Warning", total: 440 }],
+            languages: [],
+            tags: [],
+            patterns,
+            authors: [],
+            potentialFalsePositives: [],
+          },
+        },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Suggested actions to reduce noise");
+      expect(ToolsService.listTools).not.toHaveBeenCalled();
+    });
+
+    it("flags a secondary pattern a mean baseline would have masked", async () => {
+      // A mega-outlier (5000) drags the *mean* to 512, so the old 3x-mean floor
+      // of 1536 would have hidden the genuinely-disproportionate 120-issue pattern
+      // (24x the typical 5). The median floor (3x median 5 = 15) catches both, and
+      // 120 clears the absolute per-pattern floor of 100.
+      const patterns = [
+        { id: "Bandit_B608", title: "Possible SQL injection", total: 5000 },
+        { id: "Bandit_B101", title: "Use of assert detected", total: 120 },
+        ...Array.from({ length: 8 }, (_, i) => ({
+          id: `Other_${i}`,
+          title: `Pattern ${i}`,
+          total: 5,
+        })),
+      ];
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: {
+          counts: {
+            categories: [],
+            levels: [{ name: "Warning", total: 5160 }],
+            languages: [],
+            tags: [],
+            patterns,
+            authors: [],
+            potentialFalsePositives: [],
+          },
+        },
+      } as any);
+      vi.mocked(ToolsService.listTools).mockResolvedValue(banditTool as any);
+      vi.mocked(AnalysisService.listRepositoryTools).mockResolvedValue(
+        banditRepoTool() as any,
+      );
+      vi.mocked(AnalysisService.listRepositoryToolPatterns).mockResolvedValue(
+        banditPattern() as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
+      ]);
+
+      const output = getAllOutput().replace(/\x1b\[[0-9;]*m/g, "");
+      expect(output).toContain("Suggested actions to reduce noise");
+      // The mega-outlier and the secondary pattern are both suggested.
+      expect(output).toContain("codacy pattern Bandit Bandit_B608 --disable");
+      expect(output).toContain("codacy pattern Bandit Bandit_B101 --disable");
+      // The typical 5-issue patterns are not.
+      expect(output).not.toContain('Disable "Pattern 0"');
+    });
+
+    it("does not flag a disproportionate pattern below the per-pattern floor", async () => {
+      // A repo of 210 issues (above NOISE_MIN_TOTAL) where one pattern of 90 is
+      // dominant — 43% share, and well above 3x the median of 8 (24). It clears
+      // every gate except the per-pattern floor: 90 < NOISE_MIN_PATTERN (100). A
+      // rule producing 90 issues isn't a flood worth disabling, so despite being
+      // disproportionate it must not be suggested.
+      const patterns = [
+        { id: "Bandit_B101", title: "Use of assert detected", total: 90 },
+        ...Array.from({ length: 15 }, (_, i) => ({
+          id: `Other_${i}`,
+          title: `Pattern ${i}`,
+          total: 8,
+        })),
+      ];
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: {
+          counts: {
+            categories: [],
+            levels: [{ name: "Warning", total: 210 }],
+            languages: [],
+            tags: [],
+            patterns,
+            authors: [],
+            potentialFalsePositives: [],
+          },
+        },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Suggested actions to reduce noise");
+      // Nothing clears the absolute floor, so the tools lookup is skipped.
       expect(ToolsService.listTools).not.toHaveBeenCalled();
     });
   });
