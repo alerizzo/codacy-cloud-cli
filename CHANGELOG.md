@@ -1,5 +1,47 @@
 # @codacy/codacy-cloud-cli
 
+## 1.5.0
+
+### Minor Changes
+
+- [#26](https://github.com/codacy/codacy-cloud-cli/pull/26) [`bf903e4`](https://github.com/codacy/codacy-cloud-cli/commit/bf903e45f6aaa96a25d4cdbfdf19966d2a5f1c38) Thanks [@alerizzo](https://github.com/alerizzo)! - Add `ls` and `directories` commands to browse a repository's tree with quality
+  metrics. `ls` lists the directories and files at a path — showing Grade, Issues,
+  Complexity, Duplication, and Coverage per row — and `directories` (alias `dirs`)
+  lists folders only, with `--plus-children` to also show one level of
+  sub-directories as a `└─` tree. Both auto-detect the provider/organization/repository
+  from the git remote and the path from your current directory (relative to the
+  repo root); override with positional args, `--path`, and `--branch`. Sort with
+  `--sort <field>` (`name`, `issues`, `grade`, `duplication`, `complexity`,
+  `coverage`) and `--direction asc|desc`. `codacy ls --search <term>` finds files
+  at any depth under the path. Folders and files are marked with `▸` and `·` (no
+  emojis). Both commands fetch every page of results, so nothing is truncated.
+
+- [#24](https://github.com/codacy/codacy-cloud-cli/pull/24) [`bf527ad`](https://github.com/codacy/codacy-cloud-cli/commit/bf527ad694a3f7d78576a5a3647dd4d53984e088) Thanks [@alerizzo](https://github.com/alerizzo)! - Add an npm-style "update available" notice. When a newer version is published, the
+  CLI prints a one-time upgrade hint to stderr — it never auto-updates. The notice
+  only shows with the default `--output table` in an interactive terminal; it is
+  suppressed for `--output json`, when piped, in CI, and under `npx`/npm scripts, so
+  machine-readable stdout stays byte-clean. The version lookup runs in a non-blocking
+  background process (at most once a day) and never affects timing or exit codes. Opt
+  out via `CODACY_DISABLE_UPDATE_CHECK`, `NO_UPDATE_NOTIFIER`, or `--no-update-notifier`.
+  A package.json `overrides` entry pins `update-notifier`'s transitive `got`/`package-json`
+  to patched, still-CommonJS versions to avoid CVE-2022-33987.
+
+### Patch Changes
+
+- [#27](https://github.com/codacy/codacy-cloud-cli/pull/27) [`c5c9af5`](https://github.com/codacy/codacy-cloud-cli/commit/c5c9af57f63bbdc2762acb59800de65247cdf94a) Thanks [@alerizzo](https://github.com/alerizzo)! - Stop `issues --overview` from suggesting noise reduction on repositories that aren't
+  actually noisy. The "Suggested actions to reduce noise" section now requires two absolute
+  floors before anything is suggested: the repository must have at least 200 issues in total,
+  and an individual pattern must produce at least 100 issues on its own. The per-pattern floor
+  matters because a repository with a long tail of tiny patterns pulls the median issues-per-
+  pattern very low, which previously made a pattern with only a handful of issues look
+  disproportionate — now a rule has to genuinely flood the repo before it's flagged. On top of
+  those floors, a pattern must still show a relative signal: the "dominant share" rule (≥10% of
+  all issues) only applies when there are at least 11 distinct patterns (an even split of N
+  patterns only drops below 10% once N is above 10, so 8-10 balanced patterns would otherwise
+  all be flagged), and the "disproportionate count" rule now compares each
+  pattern against the **median** issues-per-pattern instead of the mean, so a single huge
+  pattern can no longer inflate the baseline and hide smaller-but-still-disproportionate ones.
+
 ## 1.4.0
 
 ### Minor Changes
