@@ -92,8 +92,10 @@ signal:
   median down (e.g. to 3) so far that a pattern with only ~9 issues clears the
   relative bar below — yet 9 issues is nothing worth disabling a rule over.
 - **Relative signal** (either one): accounts for **≥10% of all issues** shown
-  (only applied when there are **≥8 distinct patterns**, since with fewer an even
-  split already exceeds 10% each), **or** has **≥3× the median** issues-per-pattern.
+  (only applied when there are **≥11 distinct patterns** — an even split of N
+  patterns gives each `1/N`, which only drops below 10% once N > 10, so with 8–10
+  patterns a balanced repo would otherwise flag every one), **or** has **≥3× the
+  median** issues-per-pattern.
   The median (not the mean) is used so a single huge pattern can't inflate the
   baseline and mask smaller-but-still-disproportionate patterns.
 

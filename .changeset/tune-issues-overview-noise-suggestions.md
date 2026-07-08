@@ -10,7 +10,8 @@ matters because a repository with a long tail of tiny patterns pulls the median 
 pattern very low, which previously made a pattern with only a handful of issues look
 disproportionate — now a rule has to genuinely flood the repo before it's flagged. On top of
 those floors, a pattern must still show a relative signal: the "dominant share" rule (≥10% of
-all issues) only applies when there are at least 8 distinct patterns (with fewer, an even
-split already exceeds 10% each), and the "disproportionate count" rule now compares each
+all issues) only applies when there are at least 11 distinct patterns (an even split of N
+patterns only drops below 10% once N is above 10, so 8-10 balanced patterns would otherwise
+all be flagged), and the "disproportionate count" rule now compares each
 pattern against the **median** issues-per-pattern instead of the mean, so a single huge
 pattern can no longer inflate the baseline and hide smaller-but-still-disproportionate ones.

@@ -209,8 +209,10 @@ describe("issues command", () => {
   });
 
   describe("overview noise suggestions", () => {
-    // One dominant pattern plus nine small ones: total 2950, avg 295.
-    // Bandit_B101 (2500) is both >=10% of total and >=3x average → noisy.
+    // One dominant pattern plus nine small ones: total 2950, median 50.
+    // Bandit_B101 (2500) clears the per-pattern floor (100) and is >=3x the
+    // median (150) → noisy. (With only 10 patterns the share rule is off, so the
+    // median rule is what flags it here.)
     function noisyOverview() {
       const patterns = [
         { id: "Bandit_B101", title: "Use of assert detected", total: 2500 },
@@ -389,6 +391,41 @@ describe("issues command", () => {
           counts: {
             categories: [],
             levels: [{ name: "Warning", total: 1200 }],
+            languages: [],
+            tags: [],
+            patterns,
+            authors: [],
+            potentialFalsePositives: [],
+          },
+        },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo", "--overview",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Suggested actions to reduce noise");
+      expect(ToolsService.listTools).not.toHaveBeenCalled();
+    });
+
+    it("does not flag every pattern in a perfectly balanced repo", async () => {
+      // Ten evenly-distributed patterns of 100 (total 1000): each is exactly 10%
+      // of the total and clears the per-pattern floor, so a share threshold of 10
+      // would flag ALL of them. NOISE_MIN_PATTERNS_FOR_SHARE (11) disables the
+      // share rule here (10 < 11), and the median rule can't fire on a flat
+      // distribution (100 < 3x median 100), so nothing is flagged.
+      const patterns = Array.from({ length: 10 }, (_, i) => ({
+        id: `Tool_${i}`,
+        title: `Pattern ${i}`,
+        total: 100,
+      }));
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: {
+          counts: {
+            categories: [],
+            levels: [{ name: "Warning", total: 1000 }],
             languages: [],
             tags: [],
             patterns,

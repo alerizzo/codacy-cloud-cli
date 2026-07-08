@@ -51,16 +51,19 @@ const BULK_BATCH_SIZE = 100;
 // enough:
 //  - share: it alone accounts for at least NOISE_SHARE of all issues. Only applied
 //    when there are at least NOISE_MIN_PATTERNS_FOR_SHARE distinct patterns — below
-//    that, an even split already puts every pattern above the threshold (e.g. with
-//    5 patterns the average share is 20%), so the signal is meaningless.
-//  - multiple: it has at least NOISE_AVG_MULTIPLE times the *median* issues-per-
+//    that, an even split already puts every pattern at or above the threshold, so
+//    the signal is meaningless. The floor is 11 because an even split of N patterns
+//    gives each a 1/N share, and 1/N only drops below NOISE_SHARE (10%) once N > 10
+//    — with 8, 9, or 10 patterns a perfectly balanced repo (12.5% / 11.1% / 10%
+//    each) would otherwise flag every pattern.
+//  - multiple: it has at least NOISE_MEDIAN_MULTIPLE times the *median* issues-per-
 //    pattern. Using the median (not the mean) keeps one huge pattern from inflating
 //    the baseline and masking smaller-but-still-disproportionate patterns.
 const NOISE_MIN_TOTAL = 200;
 const NOISE_MIN_PATTERN = 100;
 const NOISE_SHARE = 0.1;
-const NOISE_MIN_PATTERNS_FOR_SHARE = 8;
-const NOISE_AVG_MULTIPLE = 3;
+const NOISE_MIN_PATTERNS_FOR_SHARE = 11;
+const NOISE_MEDIAN_MULTIPLE = 3;
 // Cap how many disable suggestions we print, to keep the section actionable.
 const MAX_NOISE_SUGGESTIONS = 10;
 
@@ -236,7 +239,7 @@ function medianOf(values: number[]): number {
  * when it clears the absolute per-pattern floor (NOISE_MIN_PATTERN) AND shows a
  * relative signal: it accounts for at least NOISE_SHARE of all issues (share
  * rule — only when there are at least NOISE_MIN_PATTERNS_FOR_SHARE patterns) or
- * has at least NOISE_AVG_MULTIPLE times the median issues-per-pattern (multiple
+ * has at least NOISE_MEDIAN_MULTIPLE times the median issues-per-pattern (multiple
  * rule). Sorted by count desc. See the NOISE_* constants for the rationale.
  */
 function detectNoisyPatterns(patterns: PatternsCount[]): PatternsCount[] {
@@ -244,7 +247,7 @@ function detectNoisyPatterns(patterns: PatternsCount[]): PatternsCount[] {
   const total = patterns.reduce((sum, p) => sum + p.total, 0);
   if (total < NOISE_MIN_TOTAL) return [];
   const shareFloor = NOISE_SHARE * total;
-  const medianFloor = NOISE_AVG_MULTIPLE * medianOf(patterns.map((p) => p.total));
+  const medianFloor = NOISE_MEDIAN_MULTIPLE * medianOf(patterns.map((p) => p.total));
   const shareApplies = patterns.length >= NOISE_MIN_PATTERNS_FOR_SHARE;
   return patterns
     .filter(
