@@ -30,11 +30,40 @@ import { PatternsCount } from "../api/client/models/PatternsCount";
 // API allows a maximum of 100 issue IDs per bulk-ignore call
 const BULK_BATCH_SIZE = 100;
 
-// A pattern is flagged as "noisy" (and suggested for disabling) when it dominates
-// the issue set: either it alone accounts for at least NOISE_SHARE of all issues,
-// or it has at least NOISE_AVG_MULTIPLE times the average issues-per-pattern.
+// A pattern is flagged as "noisy" (and suggested for disabling) when it BOTH
+// clears the absolute floors and looks disproportionate relative to its peers.
+//
+// Absolute floors — keep "reduce noise" advice off repos that aren't actually
+// noisy, in absolute terms:
+//  - NOISE_MIN_TOTAL: the whole section is suppressed unless the repo has at least
+//    this many issues in total. Kept deliberately ABOVE NOISE_MIN_PATTERN so it
+//    does independent work — if the two were equal, any pattern big enough to clear
+//    the per-pattern floor would already push the repo past the total floor, making
+//    it dead code. The effect: a repo needs a substantial issue volume before noise
+//    triage is worth suggesting, even when a single rule already has 100+ issues.
+//  - NOISE_MIN_PATTERN: an individual pattern must produce at least this many
+//    issues on its own. Without it, a repo with a long tail of tiny patterns pulls
+//    the median so low that a pattern with only a handful of issues clears the
+//    relative bar (e.g. median 3 → a 9-issue pattern is "3x" the median, yet 9
+//    issues is nothing worth disabling a rule over).
+//
+// Relative signals — applied only once BOTH absolute floors pass; either one is
+// enough:
+//  - share: it alone accounts for at least NOISE_SHARE of all issues. Only applied
+//    when there are at least NOISE_MIN_PATTERNS_FOR_SHARE distinct patterns — below
+//    that, an even split already puts every pattern at or above the threshold, so
+//    the signal is meaningless. The floor is 11 because an even split of N patterns
+//    gives each a 1/N share, and 1/N only drops below NOISE_SHARE (10%) once N > 10
+//    — with 8, 9, or 10 patterns a perfectly balanced repo (12.5% / 11.1% / 10%
+//    each) would otherwise flag every pattern.
+//  - multiple: it has at least NOISE_MEDIAN_MULTIPLE times the *median* issues-per-
+//    pattern. Using the median (not the mean) keeps one huge pattern from inflating
+//    the baseline and masking smaller-but-still-disproportionate patterns.
+const NOISE_MIN_TOTAL = 200;
+const NOISE_MIN_PATTERN = 100;
 const NOISE_SHARE = 0.1;
-const NOISE_AVG_MULTIPLE = 3;
+const NOISE_MIN_PATTERNS_FOR_SHARE = 11;
+const NOISE_MEDIAN_MULTIPLE = 3;
 // Cap how many disable suggestions we print, to keep the section actionable.
 const MAX_NOISE_SUGGESTIONS = 10;
 
@@ -194,20 +223,38 @@ function relabelFalsePositives(counts: Count[]): Count[] {
   }));
 }
 
+/** Median of a numeric list. Returns 0 for an empty list. */
+function medianOf(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
 /**
- * Identify "noisy" patterns worth suggesting for disabling: a pattern is noisy
- * when it accounts for at least NOISE_SHARE of all issues, or has at least
- * NOISE_AVG_MULTIPLE times the average issues-per-pattern. Sorted by count desc.
+ * Identify "noisy" patterns worth suggesting for disabling. Nothing is suggested
+ * unless there are at least NOISE_MIN_TOTAL issues overall. A pattern is noisy
+ * when it clears the absolute per-pattern floor (NOISE_MIN_PATTERN) AND shows a
+ * relative signal: it accounts for at least NOISE_SHARE of all issues (share
+ * rule — only when there are at least NOISE_MIN_PATTERNS_FOR_SHARE patterns) or
+ * has at least NOISE_MEDIAN_MULTIPLE times the median issues-per-pattern (multiple
+ * rule). Sorted by count desc. See the NOISE_* constants for the rationale.
  */
 function detectNoisyPatterns(patterns: PatternsCount[]): PatternsCount[] {
   if (patterns.length === 0) return [];
   const total = patterns.reduce((sum, p) => sum + p.total, 0);
-  if (total === 0) return [];
-  const average = total / patterns.length;
+  if (total < NOISE_MIN_TOTAL) return [];
   const shareFloor = NOISE_SHARE * total;
-  const avgFloor = NOISE_AVG_MULTIPLE * average;
+  const medianFloor = NOISE_MEDIAN_MULTIPLE * medianOf(patterns.map((p) => p.total));
+  const shareApplies = patterns.length >= NOISE_MIN_PATTERNS_FOR_SHARE;
   return patterns
-    .filter((p) => p.total >= shareFloor || p.total >= avgFloor)
+    .filter(
+      (p) =>
+        p.total >= NOISE_MIN_PATTERN &&
+        ((shareApplies && p.total >= shareFloor) || p.total >= medianFloor),
+    )
     .sort((a, b) => b.total - a.total);
 }
 
