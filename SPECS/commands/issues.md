@@ -18,6 +18,7 @@ codacy is gh my-org my-repo --output json
 ## API Endpoints
 
 - [`searchRepositoryIssues`](https://api.codacy.com/api/api-docs#searchrepositoryissues) — `AnalysisService.searchRepositoryIssues(provider, org, repo, cursor, limit, body)`
+- [`searchRepositoryIgnoredIssues`](https://api.codacy.com/api/api-docs#searchrepositoryignoredissues) — `AnalysisService.searchRepositoryIgnoredIssues(provider, org, repo, cursor, limit, body)` (only when `--state ignored` is given; accepts the same `SearchRepositoryIssuesBody`)
 - [`issuesOverview`](https://api.codacy.com/api/api-docs#issuesoverview) — `AnalysisService.issuesOverview(provider, org, repo, body)` (only when `--overview` is given)
 - [`listTools`](https://api.codacy.com/api/api-docs#listtools) — `ToolsService.listTools(cursor, limit)` (only when `--overview` surfaces noisy patterns, to map each pattern's `prefix` to its owning tool)
 - [`listRepositoryTools`](https://api.codacy.com/api/api-docs#listrepositorytools) — `AnalysisService.listRepositoryTools(provider, org, repo)` (only when `--overview` surfaces noisy patterns, to detect config-file-driven tools)
@@ -39,6 +40,7 @@ codacy is gh my-org my-repo --output json
 | `--tools <tools>` | `-T` | Comma-separated tool UUIDs or names |
 | `--limit <n>` | `-n` | Maximum number of issues (default: 100, max: 1000) |
 | `--overview` | `-O` | Show overview counts instead of list |
+| `--state <state>` | `-S` | Which issues to list: `active` (default) or `ignored` |
 | `--false-positives [value]` | `-F` | Filter by potential false positives (true, false, or omit) |
 | `--ignore` | `-I` | Ignore all issues matching current filters |
 | `--ignore-reason <reason>` | `-R` | Reason for ignoring (AcceptedUse, FalsePositive, NotExploitable, TestCode, ExternalCode) |
@@ -128,6 +130,38 @@ calls only run when at least one noisy pattern exists.
 
 `--output json` is unaffected (raw counts only — no relabeling or suggestions).
 
+### Ignored mode (`--state ignored`)
+
+Lists issues that were marked as ignored on Codacy, via the dedicated
+`searchRepositoryIgnoredIssues` endpoint. `--state` defaults to `active`, so
+plain `codacy issues …` is unchanged; you must pass `--state ignored` explicitly.
+
+The endpoint accepts the same filter body as the active-issues search, so every
+filter (`--branch`, `--patterns`, `--tools`, `--severities`, `--categories`,
+`--languages`, `--tags`, `--authors`, `--limit`) and `--false-positives` apply.
+It cannot be combined with `--overview` (no ignored-issues overview exists) or
+`--ignore` (those issues are already ignored) — both error out.
+
+Output is a card list sorted by severity, like the default list mode, plus an
+ignore-metadata line per issue:
+
+```
+Critical | Security Injection  <issueId>
+Potential SQL injection vulnerability
+
+src/auth.ts:20
+db.query(`SELECT * FROM users WHERE id = ${id}`);
+
+Ignored as FalsePositive by Jane Dev · 2026-06-01
+Comment: Reviewed, not exploitable
+```
+
+Ignored issues carry the string `issueId` (there is no numeric `resultDataId`),
+and the `Comment:` line is shown only when a comment was recorded. Unignoring is
+not part of this mode — use `codacy issue <id> --unignore` (there is no
+bulk-unignore endpoint). `--output json` emits `{ ignoredIssues: [...] }`
+projected to the shown fields.
+
 ## Tests
 
-File: `src/commands/issues.test.ts` — 46 tests.
+File: `src/commands/issues.test.ts` — 62 tests.

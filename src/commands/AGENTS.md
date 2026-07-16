@@ -267,6 +267,12 @@ Keeps the two command handlers thin: they only supply the API-specific callbacks
   - `-m, --ignore-comment`: optional free-text comment
   - Cannot be combined with `--overview` or `--limit`
   - Works with any combination of filters; use `--false-positives --ignore` to ignore only FP issues
+- **`--state <state>` mode** (`-S`): selects which issues to list — `active` (default) or `ignored`. Named `--state` (a value selector) rather than a `--ignored` boolean so it can't be confused with the `-I/--ignore` action, and because the codebase already uses "status" for analysis status. `-S` because `-s` is `--severities` (uppercase-when-taken rule). The `active` default keeps the existing behavior byte-for-byte
+  - `--state ignored` calls `AnalysisService.searchRepositoryIgnoredIssues` (dedicated `.../ignoredIssues/search` endpoint), reusing `buildFilterBody` — every base filter passes through unchanged — and the same paginate-to-`--limit` loop + pagination warning as list mode
+  - Guards: errors when combined with `--overview` (no ignored-issues overview endpoint) or `--ignore` (those issues are already ignored). `--false-positives` is intentionally **allowed** — it's part of the shared filter body, so "ignored issues that are potential false positives" is a valid query
+  - Rendered via `printIgnoredIssueCard` (in `utils/formatting.ts`): a variant of `printIssueCard` because `IgnoredIssue` has no numeric `resultDataId` (shows the string `issueId` instead) and carries ignore metadata — the trailing `Ignored as <reason> by <name> · <friendly date>` line plus an optional `Comment:` line
+  - View-only: unignoring stays with `issue --unignore` (there is no bulk-unignore endpoint; it would be N per-issue `updateIssueState` calls — a possible fast-follow since `IgnoredIssue` carries the string `issueId`)
+  - JSON: `{ ignoredIssues: [...] }`, each item projected via `pickDeep` (`issueId`, `reason`, `comment`, `ignoredByName`, `ignoredTimestamp`, `patternInfo.*`, `filePath`, `lineNumber`, `lineText`, `falsePositive*`)
 
 ## finding command (`finding.ts`)
 

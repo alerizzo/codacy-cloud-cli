@@ -5,6 +5,7 @@ import { format as dateFnsFormat, parseISO, isValid, differenceInHours } from "d
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
 import { AnalysisResultReason } from "../api/client/models/AnalysisResultReason";
 import { CommitIssue } from "../api/client/models/CommitIssue";
+import { IgnoredIssue } from "../api/client/models/IgnoredIssue";
 import { SeverityLevel } from "../api/client/models/SeverityLevel";
 import { Pattern } from "../api/client/models/Pattern";
 import { ConfiguredPattern } from "../api/client/models/ConfiguredPattern";
@@ -219,6 +220,56 @@ export function printIssueCard(
     const reason = issue.falsePositiveReason || "No reason provided";
     console.log();
     console.log(ansis.yellow(`Potential false positive: ${reason}`));
+  }
+
+  console.log();
+  console.log(separator);
+}
+
+/**
+ * Card renderer for an ignored issue. Mirrors `printIssueCard` (severity color,
+ * category, file:line, line content) but is a separate function because
+ * `IgnoredIssue` differs from `CommitIssue`: it has no numeric `resultDataId`
+ * (only the string `issueId`), and it carries the ignore metadata
+ * (reason / who / when / comment) shown on the trailing line.
+ */
+export function printIgnoredIssueCard(issue: IgnoredIssue): void {
+  const pattern = issue.patternInfo;
+  const separator = ansis.dim("─".repeat(40));
+
+  console.log();
+
+  // Line 1: Severity | Category SubCategory?   <dim issueId>
+  const severity = colorSeverity(pattern.severityLevel);
+  const subCat = pattern.subCategory ? ` ${pattern.subCategory}` : "";
+  const id = ansis.hex("#555555")(issue.issueId);
+  console.log(
+    `${severity} ${ansis.dim("|")} ${pattern.category}${subCat}  ${id}`,
+  );
+
+  // Issue message
+  console.log(issue.message);
+  console.log();
+
+  // File path : line number
+  console.log(ansis.dim(`${issue.filePath}:${issue.lineNumber}`));
+
+  // Line content (trimmed)
+  if (issue.lineText) {
+    console.log(ansis.dim(issue.lineText.trim()));
+  }
+
+  // Ignore metadata: "Ignored as <reason> by <name> · <friendly date>"
+  console.log();
+  const reason = issue.reason ? ` as ${issue.reason}` : "";
+  const by = issue.ignoredByName ? ` by ${issue.ignoredByName}` : "";
+  const parts = [`Ignored${reason}${by}`];
+  if (issue.ignoredTimestamp) {
+    parts.push(formatFriendlyDate(issue.ignoredTimestamp));
+  }
+  console.log(ansis.dim(parts.join(" · ")));
+  if (issue.comment) {
+    console.log(ansis.dim(`Comment: ${issue.comment}`));
   }
 
   console.log();
