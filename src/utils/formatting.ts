@@ -180,37 +180,66 @@ export function formatDependencyChainsBlock(
  * The issue ID (resultDataId) is appended at the end of the first line in a
  * very dim color so it doesn't draw attention but is easy to copy.
  */
+const CARD_SEPARATOR = ansis.dim("─".repeat(40));
+
+/**
+ * Render the part of an issue card shared by active and ignored issues: the
+ * `Severity | Category SubCategory? | POTENTIAL?  <id>` header, the message,
+ * and the `file:line` + line-content block. Callers append their own trailing
+ * section (false-positive warning / ignore metadata) and the separator.
+ *
+ * `idText` is the already-formatted id string — active cards pass `#<resultDataId>`,
+ * ignored cards pass the string `issueId` (which has no numeric resultDataId).
+ */
+function printIssueCardBody(fields: {
+  severityLevel: SeverityLevel;
+  category: string;
+  subCategory?: string;
+  idText: string;
+  message: string;
+  filePath: string;
+  lineNumber?: number;
+  lineText?: string;
+  isPotential?: boolean;
+}): void {
+  console.log();
+
+  const severity = colorSeverity(fields.severityLevel);
+  const subCat = fields.subCategory ? ` ${fields.subCategory}` : "";
+  const potentialTag = fields.isPotential
+    ? ` ${ansis.dim("|")} ${ansis.dim("POTENTIAL")}`
+    : "";
+  const id = ansis.hex("#555555")(fields.idText);
+  console.log(
+    `${severity} ${ansis.dim("|")} ${fields.category}${subCat}${potentialTag}  ${id}`,
+  );
+
+  console.log(fields.message);
+  console.log();
+
+  console.log(ansis.dim(`${fields.filePath}:${fields.lineNumber}`));
+  if (fields.lineText) {
+    console.log(ansis.dim(fields.lineText.trim()));
+  }
+}
+
 export function printIssueCard(
   issue: CommitIssue,
   options?: { isPotential?: boolean },
 ): void {
   const pattern = issue.patternInfo;
-  const separator = ansis.dim("─".repeat(40));
 
-  console.log();
-
-  // Line 1: Severity | Category SubCategory? | POTENTIAL?   <dim id>
-  const severity = colorSeverity(pattern.severityLevel);
-  const subCat = pattern.subCategory ? ` ${pattern.subCategory}` : "";
-  const potentialTag = options?.isPotential
-    ? ` ${ansis.dim("|")} ${ansis.dim("POTENTIAL")}`
-    : "";
-  const id = ansis.hex("#555555")(`#${issue.resultDataId}`);
-  console.log(
-    `${severity} ${ansis.dim("|")} ${pattern.category}${subCat}${potentialTag}  ${id}`,
-  );
-
-  // Issue message
-  console.log(issue.message);
-  console.log();
-
-  // File path : line number
-  console.log(ansis.dim(`${issue.filePath}:${issue.lineNumber}`));
-
-  // Line content (trimmed)
-  if (issue.lineText) {
-    console.log(ansis.dim(issue.lineText.trim()));
-  }
+  printIssueCardBody({
+    severityLevel: pattern.severityLevel,
+    category: pattern.category,
+    subCategory: pattern.subCategory,
+    idText: `#${issue.resultDataId}`,
+    message: issue.message,
+    filePath: issue.filePath,
+    lineNumber: issue.lineNumber,
+    lineText: issue.lineText,
+    isPotential: options?.isPotential,
+  });
 
   // False positive detection
   if (
@@ -223,41 +252,28 @@ export function printIssueCard(
   }
 
   console.log();
-  console.log(separator);
+  console.log(CARD_SEPARATOR);
 }
 
 /**
- * Card renderer for an ignored issue. Mirrors `printIssueCard` (severity color,
- * category, file:line, line content) but is a separate function because
- * `IgnoredIssue` differs from `CommitIssue`: it has no numeric `resultDataId`
- * (only the string `issueId`), and it carries the ignore metadata
- * (reason / who / when / comment) shown on the trailing line.
+ * Card renderer for an ignored issue. Reuses `printIssueCardBody` for the shared
+ * layout, then appends the ignore metadata line (reason / who / when) and an
+ * optional comment. `IgnoredIssue` has no numeric `resultDataId`, so the header
+ * shows the string `issueId`.
  */
 export function printIgnoredIssueCard(issue: IgnoredIssue): void {
   const pattern = issue.patternInfo;
-  const separator = ansis.dim("─".repeat(40));
 
-  console.log();
-
-  // Line 1: Severity | Category SubCategory?   <dim issueId>
-  const severity = colorSeverity(pattern.severityLevel);
-  const subCat = pattern.subCategory ? ` ${pattern.subCategory}` : "";
-  const id = ansis.hex("#555555")(issue.issueId);
-  console.log(
-    `${severity} ${ansis.dim("|")} ${pattern.category}${subCat}  ${id}`,
-  );
-
-  // Issue message
-  console.log(issue.message);
-  console.log();
-
-  // File path : line number
-  console.log(ansis.dim(`${issue.filePath}:${issue.lineNumber}`));
-
-  // Line content (trimmed)
-  if (issue.lineText) {
-    console.log(ansis.dim(issue.lineText.trim()));
-  }
+  printIssueCardBody({
+    severityLevel: pattern.severityLevel,
+    category: pattern.category,
+    subCategory: pattern.subCategory,
+    idText: issue.issueId,
+    message: issue.message,
+    filePath: issue.filePath,
+    lineNumber: issue.lineNumber,
+    lineText: issue.lineText,
+  });
 
   // Ignore metadata: "Ignored as <reason> by <name> · <friendly date>"
   console.log();
@@ -273,7 +289,7 @@ export function printIgnoredIssueCard(issue: IgnoredIssue): void {
   }
 
   console.log();
-  console.log(separator);
+  console.log(CARD_SEPARATOR);
 }
 
 export type GateStatusMap = {

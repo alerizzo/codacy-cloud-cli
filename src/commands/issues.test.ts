@@ -91,6 +91,51 @@ const mockOverview = {
   },
 };
 
+const mockIgnoredIssues = [
+  {
+    issueId: "ign-uuid-1",
+    reason: "FalsePositive",
+    comment: "Reviewed, not exploitable",
+    ignoredByName: "Jane Dev",
+    ignoredTimestamp: "2026-06-01T10:00:00Z",
+    filePath: "src/auth.ts",
+    patternInfo: {
+      id: "sql-injection",
+      title: "SQL Injection",
+      category: "Security",
+      subCategory: "Injection",
+      severityLevel: "Error",
+      level: "Error",
+    },
+    toolInfo: { uuid: "tool-1", name: "Semgrep" },
+    lineNumber: 20,
+    message: "Potential SQL injection vulnerability",
+    language: "TypeScript",
+    lineText: "  db.query(`SELECT * FROM users WHERE id = ${id}`);",
+    falsePositiveThreshold: 0.3,
+  },
+  {
+    issueId: "ign-uuid-2",
+    reason: "AcceptedUse",
+    ignoredByName: "John Ops",
+    ignoredTimestamp: "2026-05-20T12:00:00Z",
+    filePath: "src/utils.ts",
+    patternInfo: {
+      id: "no-unused",
+      title: "no unused variables",
+      category: "Code Style",
+      severityLevel: "Warning",
+      level: "Warning",
+    },
+    toolInfo: { uuid: "tool-1", name: "ESLint" },
+    lineNumber: 5,
+    message: "Unused variable 'helper'",
+    language: "TypeScript",
+    lineText: "  const helper = 42;",
+    falsePositiveThreshold: 0.5,
+  },
+];
+
 function getAllOutput(): string {
   return (console.log as ReturnType<typeof vi.fn>).mock.calls
     .map((c) => c[0])
@@ -1600,51 +1645,6 @@ describe("issues command", () => {
   });
 
   describe("--state ignored", () => {
-    const mockIgnoredIssues = [
-      {
-        issueId: "ign-uuid-1",
-        reason: "FalsePositive",
-        comment: "Reviewed, not exploitable",
-        ignoredByName: "Jane Dev",
-        ignoredTimestamp: "2026-06-01T10:00:00Z",
-        filePath: "src/auth.ts",
-        patternInfo: {
-          id: "sql-injection",
-          title: "SQL Injection",
-          category: "Security",
-          subCategory: "Injection",
-          severityLevel: "Error",
-          level: "Error",
-        },
-        toolInfo: { uuid: "tool-1", name: "Semgrep" },
-        lineNumber: 20,
-        message: "Potential SQL injection vulnerability",
-        language: "TypeScript",
-        lineText: "  db.query(`SELECT * FROM users WHERE id = ${id}`);",
-        falsePositiveThreshold: 0.3,
-      },
-      {
-        issueId: "ign-uuid-2",
-        reason: "AcceptedUse",
-        ignoredByName: "John Ops",
-        ignoredTimestamp: "2026-05-20T12:00:00Z",
-        filePath: "src/utils.ts",
-        patternInfo: {
-          id: "no-unused",
-          title: "no unused variables",
-          category: "Code Style",
-          severityLevel: "Warning",
-          level: "Warning",
-        },
-        toolInfo: { uuid: "tool-1", name: "ESLint" },
-        lineNumber: 5,
-        message: "Unused variable 'helper'",
-        language: "TypeScript",
-        lineText: "  const helper = 42;",
-        falsePositiveThreshold: 0.5,
-      },
-    ];
-
     it("lists ignored issues with ignore metadata and comment", async () => {
       vi.mocked(
         AnalysisService.searchRepositoryIgnoredIssues,
