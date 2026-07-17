@@ -265,8 +265,15 @@ Keeps the two command handlers thin: they only supply the API-specific callbacks
 - **`--ignore` mode** (`-I`): fetches all issues matching current filters (all pages), then calls `AnalysisService.bulkIgnoreIssues` in batches of 100
   - `-R, --ignore-reason`: `AcceptedUse` (default) | `FalsePositive` | `NotExploitable` | `TestCode` | `ExternalCode`
   - `-m, --ignore-comment`: optional free-text comment
+  - **Confirmation** (`-y, --skip-confirmation`): the ignore is destructive and applies to *all* matching issues, so `executeBulkIgnore` prompts via `confirmAction` (shared `utils/prompt.ts`) after printing the count, and only proceeds on an explicit `y`. `--skip-confirmation` skips the prompt for CI/scripts. `confirmAction` returns `false` on a non-TTY, so a non-interactive run without the flag aborts rather than ignoring by accident. Same `-y` short flag as `tools --import`'s `--skip-approval`. Confirmation happens *after* fetching (so the count is shown) but *before* any `bulkIgnoreIssues` call
   - Cannot be combined with `--overview` or `--limit`
   - Works with any combination of filters; use `--false-positives --ignore` to ignore only FP issues
+- **`--ignored` mode** (`-i`): boolean flag that lists ignored issues instead of active ones. Modeled as a boolean flag for consistency with the other boolean filter, `--false-positives` (not a `--state <value>` selector). `-i` is the natural short flag; note it is distinct from `-I/--ignore` (the bulk-ignore *action*) — `-i` lists already-ignored issues, `-I` ignores matching active ones. Omitting the flag keeps the existing active-issues behavior unchanged
+  - `--ignored` calls `AnalysisService.searchRepositoryIgnoredIssues` (dedicated `.../ignoredIssues/search` endpoint), reusing `buildFilterBody` — every base filter passes through unchanged — and the same paginate-to-`--limit` loop + pagination warning as list mode
+  - Guards: errors when combined with `--overview` (no ignored-issues overview endpoint) or `--ignore` (those issues are already ignored). `--false-positives` is intentionally **allowed** — it's part of the shared filter body, so "ignored issues that are potential false positives" is a valid query
+  - Rendered via `printIgnoredIssueCard` (in `utils/formatting.ts`): a variant of `printIssueCard` because `IgnoredIssue` has no numeric `resultDataId` (shows the string `issueId` instead) and carries ignore metadata — the trailing `Ignored as <reason> by <name> · <friendly date>` line plus an optional `Comment:` line
+  - View-only: unignoring stays with `issue --unignore` (there is no bulk-unignore endpoint; it would be N per-issue `updateIssueState` calls — a possible fast-follow since `IgnoredIssue` carries the string `issueId`)
+  - JSON: `{ ignoredIssues: [...] }`, each item projected via `pickDeep` (`issueId`, `reason`, `comment`, `ignoredByName`, `ignoredTimestamp`, `patternInfo.*`, `filePath`, `lineNumber`, `lineText`, `falsePositive*`)
 
 ## finding command (`finding.ts`)
 

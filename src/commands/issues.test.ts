@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { registerIssuesCommand } from "./issues";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
+import * as prompt from "../utils/prompt";
 
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/ToolsService");
@@ -90,6 +91,51 @@ const mockOverview = {
     },
   },
 };
+
+const mockIgnoredIssues = [
+  {
+    issueId: "ign-uuid-1",
+    reason: "FalsePositive",
+    comment: "Reviewed, not exploitable",
+    ignoredByName: "Jane Dev",
+    ignoredTimestamp: "2026-06-01T10:00:00Z",
+    filePath: "src/auth.ts",
+    patternInfo: {
+      id: "sql-injection",
+      title: "SQL Injection",
+      category: "Security",
+      subCategory: "Injection",
+      severityLevel: "Error",
+      level: "Error",
+    },
+    toolInfo: { uuid: "tool-1", name: "Semgrep" },
+    lineNumber: 20,
+    message: "Potential SQL injection vulnerability",
+    language: "TypeScript",
+    lineText: "  db.query(`SELECT * FROM users WHERE id = ${id}`);",
+    falsePositiveThreshold: 0.3,
+  },
+  {
+    issueId: "ign-uuid-2",
+    reason: "AcceptedUse",
+    ignoredByName: "John Ops",
+    ignoredTimestamp: "2026-05-20T12:00:00Z",
+    filePath: "src/utils.ts",
+    patternInfo: {
+      id: "no-unused",
+      title: "no unused variables",
+      category: "Code Style",
+      severityLevel: "Warning",
+      level: "Warning",
+    },
+    toolInfo: { uuid: "tool-1", name: "ESLint" },
+    lineNumber: 5,
+    message: "Unused variable 'helper'",
+    language: "TypeScript",
+    lineText: "  const helper = 42;",
+    falsePositiveThreshold: 0.5,
+  },
+];
 
 function getAllOutput(): string {
   return (console.log as ReturnType<typeof vi.fn>).mock.calls
@@ -1332,6 +1378,13 @@ describe("issues command", () => {
   });
 
   describe("--ignore flag", () => {
+    beforeEach(() => {
+      // Bulk-ignore now confirms first. Default the prompt to "yes" so the
+      // behavioral tests below exercise the ignore path; the confirmation tests
+      // further down override this to assert on the prompt itself.
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+    });
+
     it("should error when --overview is combined with --ignore", async () => {
       const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
         throw new Error("process.exit called");
@@ -1552,6 +1605,59 @@ describe("issues command", () => {
         },
       );
     });
+
+    it("prompts for confirmation (with the count) and ignores when confirmed", async () => {
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: mockIssues,
+      } as any);
+      vi.mocked(AnalysisService.bulkIgnoreIssues).mockResolvedValue(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignore",
+      ]);
+
+      expect(prompt.confirmAction).toHaveBeenCalledTimes(1);
+      // The prompt must state how many issues will be ignored.
+      expect((prompt.confirmAction as any).mock.calls[0][0]).toContain("2");
+      expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalled();
+    });
+
+    it("aborts without ignoring when the user declines the confirmation", async () => {
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(false);
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: mockIssues,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignore",
+      ]);
+
+      expect(prompt.confirmAction).toHaveBeenCalledTimes(1);
+      expect(AnalysisService.bulkIgnoreIssues).not.toHaveBeenCalled();
+      expect(getAllOutput()).toContain("Aborted");
+    });
+
+    it("skips the confirmation prompt with --skip-confirmation", async () => {
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: mockIssues,
+      } as any);
+      vi.mocked(AnalysisService.bulkIgnoreIssues).mockResolvedValue(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignore", "--skip-confirmation",
+      ]);
+
+      expect(prompt.confirmAction).not.toHaveBeenCalled();
+      expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalled();
+    });
   });
 
   describe("auto-detect from git remote", () => {
@@ -1596,6 +1702,214 @@ describe("issues command", () => {
         100,
         {},
       );
+    });
+  });
+
+  describe("--ignored", () => {
+    it("lists ignored issues with ignore metadata and comment", async () => {
+      vi.mocked(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).mockResolvedValue({
+        data: mockIgnoredIssues,
+        pagination: undefined,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignored",
+      ]);
+
+      expect(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).toHaveBeenCalledWith("gh", "test-org", "test-repo", undefined, 100, {});
+      // The active-issue endpoint must not be touched.
+      expect(AnalysisService.searchRepositoryIssues).not.toHaveBeenCalled();
+
+      const output = getAllOutput();
+      expect(output).toContain("Ignored Issues");
+      expect(output).toContain("Potential SQL injection vulnerability");
+      expect(output).toContain("ign-uuid-1");
+      expect(output).toContain("Ignored as FalsePositive by Jane Dev");
+      expect(output).toContain("2026-06-01");
+      expect(output).toContain("Comment: Reviewed, not exploitable");
+    });
+
+    it("omits the comment line when an ignored issue has no comment", async () => {
+      vi.mocked(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).mockResolvedValue({
+        data: [mockIgnoredIssues[1]],
+        pagination: undefined,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignored",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Ignored as AcceptedUse by John Ops");
+      expect(output).not.toContain("Comment:");
+    });
+
+    it("shows an empty message when there are no ignored issues", async () => {
+      vi.mocked(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).mockResolvedValue({ data: [], pagination: undefined } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignored",
+      ]);
+
+      expect(getAllOutput()).toContain("No ignored issues found.");
+    });
+
+    it("passes filters through to the ignored-issues endpoint", async () => {
+      vi.mocked(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).mockResolvedValue({ data: [], pagination: undefined } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignored",
+        "--severities", "Critical",
+        "--categories", "Security",
+      ]);
+
+      expect(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).toHaveBeenCalledWith("gh", "test-org", "test-repo", undefined, 100, {
+        levels: ["Error"],
+        categories: ["Security"],
+      });
+    });
+
+    it("allows --false-positives together with --ignored", async () => {
+      vi.mocked(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).mockResolvedValue({ data: [], pagination: undefined } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignored", "--false-positives",
+      ]);
+
+      expect(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).toHaveBeenCalledWith("gh", "test-org", "test-repo", undefined, 100, {
+        potentialFalsePositives: true,
+      });
+    });
+
+    it("paginates across pages and warns when more remain", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIgnoredIssues)
+        .mockResolvedValueOnce({
+          data: [mockIgnoredIssues[0]],
+          pagination: { cursor: "cursor-2", limit: 100, total: 250 },
+        } as any)
+        .mockResolvedValueOnce({
+          data: [mockIgnoredIssues[1]],
+          pagination: { cursor: undefined, limit: 100, total: 250 },
+        } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignored", "--limit", "200",
+      ]);
+
+      expect(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).toHaveBeenCalledTimes(2);
+      expect(getAllOutput()).toContain("Ignored Issues");
+    });
+
+    it("emits JSON with only the projected fields", async () => {
+      vi.mocked(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).mockResolvedValue({
+        data: [mockIgnoredIssues[0]],
+        pagination: undefined,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignored", "--output", "json",
+      ]);
+
+      const output = getAllOutput();
+      const parsed = JSON.parse(output);
+      expect(parsed.ignoredIssues).toHaveLength(1);
+      const item = parsed.ignoredIssues[0];
+      expect(item.issueId).toBe("ign-uuid-1");
+      expect(item.reason).toBe("FalsePositive");
+      expect(item.ignoredByName).toBe("Jane Dev");
+      expect(item.ignoredTimestamp).toBe("2026-06-01T10:00:00Z");
+      expect(item.patternInfo.category).toBe("Security");
+      // Fields not shown in the card must be stripped.
+      expect(item.toolInfo).toBeUndefined();
+      expect(item.language).toBeUndefined();
+    });
+
+    it("errors when --ignored is combined with --overview", async () => {
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "issues", "gh", "test-org", "test-repo",
+          "--ignored", "--overview",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(mockExit).toHaveBeenCalledWith(1);
+      mockExit.mockRestore();
+    });
+
+    it("errors when --ignored is combined with --ignore", async () => {
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "issues", "gh", "test-org", "test-repo",
+          "--ignored", "--ignore",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(mockExit).toHaveBeenCalledWith(1);
+      expect(AnalysisService.bulkIgnoreIssues).not.toHaveBeenCalled();
+      mockExit.mockRestore();
+    });
+
+    it("default (no --ignored) still uses the active-issues endpoint", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [],
+        pagination: undefined,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalled();
+      expect(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).not.toHaveBeenCalled();
     });
   });
 });

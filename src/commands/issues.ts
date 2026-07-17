@@ -4,6 +4,7 @@ import ansis from "ansis";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
+import { confirmAction } from "../utils/prompt";
 import {
   createTable,
   getOutputFormat,
@@ -14,6 +15,7 @@ import {
 import {
   printSection,
   printIssueCard,
+  printIgnoredIssueCard,
   resolveToolUuids,
   formatCount,
 } from "../utils/formatting";
@@ -22,6 +24,7 @@ import { ToolsService } from "../api/client/services/ToolsService";
 import { Tool } from "../api/client/models/Tool";
 import { AnalysisTool } from "../api/client/models/AnalysisTool";
 import { CommitIssue } from "../api/client/models/CommitIssue";
+import { IgnoredIssue } from "../api/client/models/IgnoredIssue";
 import { SeverityLevel } from "../api/client/models/SeverityLevel";
 import { SearchRepositoryIssuesBody } from "../api/client/models/SearchRepositoryIssuesBody";
 import { Count } from "../api/client/models/Count";
@@ -149,6 +152,22 @@ function printIssuesList(issues: CommitIssue[], total: number): void {
   });
   for (const issue of sorted) {
     printIssueCard(issue);
+  }
+}
+
+function printIgnoredIssuesList(issues: IgnoredIssue[], total: number): void {
+  printSection("Ignored Issues", total, "issue");
+  if (issues.length === 0) {
+    console.log(ansis.dim("  No ignored issues found."));
+    return;
+  }
+  const sorted = [...issues].sort((a, b) => {
+    const aOrder = SEVERITY_ORDER[a.patternInfo.severityLevel] ?? 99;
+    const bOrder = SEVERITY_ORDER[b.patternInfo.severityLevel] ?? 99;
+    return aOrder - bOrder;
+  });
+  for (const issue of sorted) {
+    printIgnoredIssueCard(issue);
   }
 }
 
@@ -508,6 +527,7 @@ async function executeBulkIgnore(
   repository: string,
   body: SearchRepositoryIssuesBody,
   reason: string,
+  skipConfirmation: boolean,
   comment?: string,
 ): Promise<void> {
   const fetchSpinner = ora("Fetching issues...").start();
@@ -537,6 +557,25 @@ async function executeBulkIgnore(
   const count = allIssues.length;
   const plural = count === 1 ? "" : "s";
   console.log(`Found ${ansis.bold(String(count))} issue${plural}.`);
+
+  // Bulk-ignore is destructive and applies to every matching issue, so confirm
+  // before proceeding — this guards against a mistyped or too-broad filter.
+  // --skip-confirmation (-y) bypasses the prompt for CI/scripts; in a
+  // non-interactive shell without that flag, confirmAction returns false and we
+  // abort rather than ignore by accident.
+  if (!skipConfirmation) {
+    const confirmed = await confirmAction(
+      `Ignore all ${count} matching issue${plural}? This marks them as ignored on Codacy.`,
+    );
+    if (!confirmed) {
+      console.log(
+        ansis.dim(
+          "Aborted — no issues were ignored. Pass --skip-confirmation (-y) to bypass this prompt in CI or scripts.",
+        ),
+      );
+      return;
+    }
+  }
 
   const ignoreSpinner = ora(`Ignoring ${count} issue${plural}...`).start();
   const issueIds = allIssues.map((i) => i.issueId);
@@ -596,6 +635,10 @@ export function registerIssuesCommand(program: Command) {
       "show issue count totals instead of the issues list",
     )
     .option(
+      "-i, --ignored",
+      "list issues that were marked as ignored instead of active ones",
+    )
+    .option(
       "-F, --false-positives [value]",
       "filter by potential false positives (true, false, or omit)",
       parseBooleanOption,
@@ -610,6 +653,10 @@ export function registerIssuesCommand(program: Command) {
       "-m, --ignore-comment <comment>",
       "optional comment when using --ignore",
     )
+    .option(
+      "-y, --skip-confirmation",
+      "skip the confirmation prompt when using --ignore (for CI/scripts)",
+    )
     .addHelpText(
       "after",
       `
@@ -622,9 +669,12 @@ Examples:
   $ codacy issues gh my-org my-repo --limit 500
   $ codacy issues gh my-org my-repo --false-positives
   $ codacy issues gh my-org my-repo --false-positives false
+  $ codacy issues gh my-org my-repo --ignored
+  $ codacy issues gh my-org my-repo --ignored --severities Critical
   $ codacy issues gh my-org my-repo --ignore --branch main
   $ codacy issues gh my-org my-repo --false-positives --ignore --ignore-reason FalsePositive
   $ codacy issues gh my-org my-repo --ignore --ignore-reason NotExploitable --ignore-comment "Reviewed"
+  $ codacy issues gh my-org my-repo --ignore --skip-confirmation   # no prompt (CI/scripts)
   $ codacy issues gh my-org my-repo --output json`,
     )
     .action(async function (
@@ -644,12 +694,91 @@ Examples:
         const opts = this.opts();
         const format = getOutputFormat(this);
         const isOverview = !!opts.overview;
+        const listIgnored = !!opts.ignored;
 
         const body = await buildFilterBody(opts);
         const limit = Math.min(
           Math.max(parseInt(opts.limit, 10) || 100, 1),
           1000,
         );
+
+        // Ignored issues are served by a dedicated endpoint that accepts the same
+        // filter body. It's a read-only listing, so the mutating/aggregating modes
+        // don't apply. --false-positives is intentionally NOT blocked: it's part of
+        // the shared filter body, so "ignored issues that are potential false
+        // positives" is a legitimate query.
+        if (listIgnored) {
+          if (isOverview) {
+            this.error(
+              "--overview cannot be used with --ignored; there is no ignored-issues overview",
+            );
+          }
+          if (opts.ignore) {
+            this.error(
+              "--ignore cannot be used with --ignored; those issues are already ignored (unignore via `codacy issue <id> --unignore`)",
+            );
+          }
+
+          const spinner = ora("Fetching ignored issues...").start();
+          const pageSize = Math.min(limit, 100);
+          let ignored: IgnoredIssue[] = [];
+          let cursor: string | undefined;
+          let total: number | undefined;
+
+          do {
+            const resp =
+              await AnalysisService.searchRepositoryIgnoredIssues(
+                provider,
+                organization,
+                repository,
+                cursor,
+                pageSize,
+                body,
+              );
+            ignored = ignored.concat(resp.data);
+            total ??= resp.pagination?.total;
+            cursor = resp.pagination?.cursor;
+          } while (cursor && ignored.length < limit);
+
+          if (ignored.length > limit) ignored = ignored.slice(0, limit);
+          total ??= ignored.length;
+          spinner.stop();
+
+          if (format === "json") {
+            printJson({
+              ignoredIssues: ignored.map((issue: any) =>
+                pickDeep(issue, [
+                  "issueId",
+                  "reason",
+                  "comment",
+                  "ignoredByName",
+                  "ignoredTimestamp",
+                  "patternInfo.id",
+                  "patternInfo.severityLevel",
+                  "patternInfo.category",
+                  "patternInfo.subCategory",
+                  "message",
+                  "filePath",
+                  "lineNumber",
+                  "lineText",
+                  "falsePositiveProbability",
+                  "falsePositiveThreshold",
+                  "falsePositiveReason",
+                ]),
+              ),
+            });
+            return;
+          }
+
+          printIgnoredIssuesList(ignored, total);
+          if (total > ignored.length) {
+            printPaginationWarning(
+              { cursor: "more", limit: ignored.length },
+              "Use --limit <n> (max 1000) to fetch more, or --severities, --categories, --languages to filter.",
+            );
+          }
+          return;
+        }
 
         if (opts.ignore) {
           if (isOverview) {
@@ -668,6 +797,7 @@ Examples:
             repository,
             body,
             opts.ignoreReason,
+            !!opts.skipConfirmation,
             opts.ignoreComment,
           );
           return;

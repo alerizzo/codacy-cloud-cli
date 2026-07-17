@@ -30,6 +30,14 @@ concerns.
   versions (no `^`/`~`) for reproducibility and to avoid dependency-confusion
   risk. Flagging an unpinned range is correct; suggesting a range is not.
 
+## CLI output / rendering
+- `src/utils/formatting.ts` has two issue-card renderers that differ **on
+  purpose**: `printIgnoredIssueCard` omits the "Potential false positive"
+  warning that `printIssueCard` shows, because an ignored issue already surfaces
+  its ignore reason (usually `FalsePositive`) on the metadata line. Don't flag
+  the missing warning as a parity gap. The shared header/message/file-line block
+  is factored into `printIssueCardBody`; the trailing sections diverge by design.
+
 ## Generated files
 - `package-lock.json` and everything under `src/api/client/**` are generated.
   Complexity, duplication, and size findings on these are false positives.
