@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { registerIssuesCommand } from "./issues";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
+import * as prompt from "../utils/prompt";
 
 vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/ToolsService");
@@ -1377,6 +1378,13 @@ describe("issues command", () => {
   });
 
   describe("--ignore flag", () => {
+    beforeEach(() => {
+      // Bulk-ignore now confirms first. Default the prompt to "yes" so the
+      // behavioral tests below exercise the ignore path; the confirmation tests
+      // further down override this to assert on the prompt itself.
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+    });
+
     it("should error when --overview is combined with --ignore", async () => {
       const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
         throw new Error("process.exit called");
@@ -1597,6 +1605,59 @@ describe("issues command", () => {
         },
       );
     });
+
+    it("prompts for confirmation (with the count) and ignores when confirmed", async () => {
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: mockIssues,
+      } as any);
+      vi.mocked(AnalysisService.bulkIgnoreIssues).mockResolvedValue(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignore",
+      ]);
+
+      expect(prompt.confirmAction).toHaveBeenCalledTimes(1);
+      // The prompt must state how many issues will be ignored.
+      expect((prompt.confirmAction as any).mock.calls[0][0]).toContain("2");
+      expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalled();
+    });
+
+    it("aborts without ignoring when the user declines the confirmation", async () => {
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(false);
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: mockIssues,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignore",
+      ]);
+
+      expect(prompt.confirmAction).toHaveBeenCalledTimes(1);
+      expect(AnalysisService.bulkIgnoreIssues).not.toHaveBeenCalled();
+      expect(getAllOutput()).toContain("Aborted");
+    });
+
+    it("skips the confirmation prompt with --skip-confirmation", async () => {
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(true);
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: mockIssues,
+      } as any);
+      vi.mocked(AnalysisService.bulkIgnoreIssues).mockResolvedValue(undefined as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--ignore", "--skip-confirmation",
+      ]);
+
+      expect(prompt.confirmAction).not.toHaveBeenCalled();
+      expect(AnalysisService.bulkIgnoreIssues).toHaveBeenCalled();
+    });
   });
 
   describe("auto-detect from git remote", () => {
@@ -1644,7 +1705,7 @@ describe("issues command", () => {
     });
   });
 
-  describe("--state ignored", () => {
+  describe("--ignored", () => {
     it("lists ignored issues with ignore metadata and comment", async () => {
       vi.mocked(
         AnalysisService.searchRepositoryIgnoredIssues,
@@ -1656,7 +1717,7 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--state", "ignored",
+        "--ignored",
       ]);
 
       expect(
@@ -1685,7 +1746,7 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--state", "ignored",
+        "--ignored",
       ]);
 
       const output = getAllOutput();
@@ -1701,7 +1762,7 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--state", "ignored",
+        "--ignored",
       ]);
 
       expect(getAllOutput()).toContain("No ignored issues found.");
@@ -1715,7 +1776,7 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--state", "ignored",
+        "--ignored",
         "--severities", "Critical",
         "--categories", "Security",
       ]);
@@ -1728,7 +1789,7 @@ describe("issues command", () => {
       });
     });
 
-    it("allows --false-positives together with --state ignored", async () => {
+    it("allows --false-positives together with --ignored", async () => {
       vi.mocked(
         AnalysisService.searchRepositoryIgnoredIssues,
       ).mockResolvedValue({ data: [], pagination: undefined } as any);
@@ -1736,7 +1797,7 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--state", "ignored", "--false-positives",
+        "--ignored", "--false-positives",
       ]);
 
       expect(
@@ -1760,7 +1821,7 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--state", "ignored", "--limit", "200",
+        "--ignored", "--limit", "200",
       ]);
 
       expect(
@@ -1780,7 +1841,7 @@ describe("issues command", () => {
       const program = createProgram();
       await program.parseAsync([
         "node", "test", "issues", "gh", "test-org", "test-repo",
-        "--state", "ignored", "--output", "json",
+        "--ignored", "--output", "json",
       ]);
 
       const output = getAllOutput();
@@ -1797,7 +1858,7 @@ describe("issues command", () => {
       expect(item.language).toBeUndefined();
     });
 
-    it("errors on an invalid --state value", async () => {
+    it("errors when --ignored is combined with --overview", async () => {
       const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
         throw new Error("process.exit called");
       });
@@ -1807,28 +1868,7 @@ describe("issues command", () => {
       await expect(
         program.parseAsync([
           "node", "test", "issues", "gh", "test-org", "test-repo",
-          "--state", "bogus",
-        ]),
-      ).rejects.toThrow("process.exit called");
-
-      expect(mockExit).toHaveBeenCalledWith(1);
-      expect(
-        AnalysisService.searchRepositoryIgnoredIssues,
-      ).not.toHaveBeenCalled();
-      mockExit.mockRestore();
-    });
-
-    it("errors when --state ignored is combined with --overview", async () => {
-      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
-        throw new Error("process.exit called");
-      });
-      vi.spyOn(console, "error").mockImplementation(() => {});
-
-      const program = createProgram();
-      await expect(
-        program.parseAsync([
-          "node", "test", "issues", "gh", "test-org", "test-repo",
-          "--state", "ignored", "--overview",
+          "--ignored", "--overview",
         ]),
       ).rejects.toThrow("process.exit called");
 
@@ -1836,7 +1876,7 @@ describe("issues command", () => {
       mockExit.mockRestore();
     });
 
-    it("errors when --state ignored is combined with --ignore", async () => {
+    it("errors when --ignored is combined with --ignore", async () => {
       const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
         throw new Error("process.exit called");
       });
@@ -1846,7 +1886,7 @@ describe("issues command", () => {
       await expect(
         program.parseAsync([
           "node", "test", "issues", "gh", "test-org", "test-repo",
-          "--state", "ignored", "--ignore",
+          "--ignored", "--ignore",
         ]),
       ).rejects.toThrow("process.exit called");
 
@@ -1855,7 +1895,7 @@ describe("issues command", () => {
       mockExit.mockRestore();
     });
 
-    it("default (no --state) still uses the active-issues endpoint", async () => {
+    it("default (no --ignored) still uses the active-issues endpoint", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
         data: [],
         pagination: undefined,

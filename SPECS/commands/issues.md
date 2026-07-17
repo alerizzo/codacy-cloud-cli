@@ -18,7 +18,7 @@ codacy is gh my-org my-repo --output json
 ## API Endpoints
 
 - [`searchRepositoryIssues`](https://api.codacy.com/api/api-docs#searchrepositoryissues) — `AnalysisService.searchRepositoryIssues(provider, org, repo, cursor, limit, body)`
-- [`searchRepositoryIgnoredIssues`](https://api.codacy.com/api/api-docs#searchrepositoryignoredissues) — `AnalysisService.searchRepositoryIgnoredIssues(provider, org, repo, cursor, limit, body)` (only when `--state ignored` is given; accepts the same `SearchRepositoryIssuesBody`)
+- [`searchRepositoryIgnoredIssues`](https://api.codacy.com/api/api-docs#searchrepositoryignoredissues) — `AnalysisService.searchRepositoryIgnoredIssues(provider, org, repo, cursor, limit, body)` (only when `--ignored` is given; accepts the same `SearchRepositoryIssuesBody`)
 - [`issuesOverview`](https://api.codacy.com/api/api-docs#issuesoverview) — `AnalysisService.issuesOverview(provider, org, repo, body)` (only when `--overview` is given)
 - [`listTools`](https://api.codacy.com/api/api-docs#listtools) — `ToolsService.listTools(cursor, limit)` (only when `--overview` surfaces noisy patterns, to map each pattern's `prefix` to its owning tool)
 - [`listRepositoryTools`](https://api.codacy.com/api/api-docs#listrepositorytools) — `AnalysisService.listRepositoryTools(provider, org, repo)` (only when `--overview` surfaces noisy patterns, to detect config-file-driven tools)
@@ -40,11 +40,12 @@ codacy is gh my-org my-repo --output json
 | `--tools <tools>` | `-T` | Comma-separated tool UUIDs or names |
 | `--limit <n>` | `-n` | Maximum number of issues (default: 100, max: 1000) |
 | `--overview` | `-O` | Show overview counts instead of list |
-| `--state <state>` | `-S` | Which issues to list: `active` (default) or `ignored` |
+| `--ignored` | `-i` | List issues marked as ignored instead of active ones |
 | `--false-positives [value]` | `-F` | Filter by potential false positives (true, false, or omit) |
 | `--ignore` | `-I` | Ignore all issues matching current filters |
 | `--ignore-reason <reason>` | `-R` | Reason for ignoring (AcceptedUse, FalsePositive, NotExploitable, TestCode, ExternalCode) |
 | `--ignore-comment <comment>` | `-m` | Optional comment when using --ignore |
+| `--skip-confirmation` | `-y` | Skip the confirmation prompt when using --ignore (for CI/scripts) |
 
 ## Output
 
@@ -130,11 +131,12 @@ calls only run when at least one noisy pattern exists.
 
 `--output json` is unaffected (raw counts only — no relabeling or suggestions).
 
-### Ignored mode (`--state ignored`)
+### Ignored mode (`--ignored`)
 
 Lists issues that were marked as ignored on Codacy, via the dedicated
-`searchRepositoryIgnoredIssues` endpoint. `--state` defaults to `active`, so
-plain `codacy issues …` is unchanged; you must pass `--state ignored` explicitly.
+`searchRepositoryIgnoredIssues` endpoint. `--ignored` is a boolean flag (like
+`--false-positives`); without it, `codacy issues …` lists active issues as
+before, and passing `--ignored` switches to the ignored listing.
 
 The endpoint accepts the same filter body as the active-issues search, so every
 filter (`--branch`, `--patterns`, `--tools`, `--severities`, `--categories`,
@@ -162,6 +164,17 @@ not part of this mode — use `codacy issue <id> --unignore` (there is no
 bulk-unignore endpoint). `--output json` emits `{ ignoredIssues: [...] }`
 projected to the shown fields.
 
+### Bulk ignore mode (`--ignore`)
+
+Fetches every issue matching the current filters (all pages) and marks them all
+as ignored via `bulkIgnoreIssues` (batched at 100 IDs per call). Because this is
+destructive and applies to *all* matching issues, it prompts for confirmation
+after showing the count (`Ignore all N matching issues? …`) and only proceeds on
+an explicit `y`. `--skip-confirmation` (`-y`) bypasses the prompt for CI/scripts;
+in a non-interactive shell without that flag the prompt cannot be answered, so
+the command aborts without ignoring anything (rather than ignoring by accident).
+Cannot be combined with `--overview` or `--limit`.
+
 ## Tests
 
-File: `src/commands/issues.test.ts` — 62 tests.
+File: `src/commands/issues.test.ts` — 64 tests.
