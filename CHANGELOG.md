@@ -1,5 +1,26 @@
 # @codacy/codacy-cloud-cli
 
+## 1.6.0
+
+### Minor Changes
+
+- [#28](https://github.com/codacy/codacy-cloud-cli/pull/28) [`440a57f`](https://github.com/codacy/codacy-cloud-cli/commit/440a57fec915aae6fcebf9cc8dde6fca9d71c266) Thanks [@claudiacodacy](https://github.com/claudiacodacy)! - `codacy issues --ignore` now asks for confirmation before bulk-ignoring. It
+  prints how many issues match the current filters and only proceeds when you
+  answer `y`, guarding against a mistyped or too-broad filter ignoring far more
+  issues than intended. Pass `--skip-confirmation` (`-y`) to bypass the prompt in
+  CI or scripts; in a non-interactive shell without that flag the command aborts
+  without ignoring anything.
+
+- [#28](https://github.com/codacy/codacy-cloud-cli/pull/28) [`440a57f`](https://github.com/codacy/codacy-cloud-cli/commit/440a57fec915aae6fcebf9cc8dde6fca9d71c266) Thanks [@claudiacodacy](https://github.com/claudiacodacy)! - Add `codacy issues --ignored` (`-i`) to list issues that were marked as ignored
+  on Codacy. Without the flag, `codacy issues` behaves exactly as before; pass
+  `--ignored` to see the ignored ones instead. The
+  ignored listing accepts all the same filters as the normal search (`--branch`,
+  `--severities`, `--categories`, `--tools`, `--patterns`, `--languages`, `--tags`,
+  `--authors`, `--limit`, and `--false-positives`), and each ignored issue shows
+  who ignored it, when, the reason, and any comment. It cannot be combined with
+  `--overview` or `--ignore`. `--output json` emits an `ignoredIssues` array.
+  Unignoring individual issues stays with `codacy issue <id> --unignore`.
+
 ## 1.5.0
 
 ### Minor Changes
