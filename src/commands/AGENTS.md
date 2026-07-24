@@ -4,6 +4,32 @@
 
 Each command is a single file that exports a `register<Name>Command(program: Command)` function. Commands are registered in `src/index.ts`.
 
+## Neutralizing untrusted output (CWE-150)
+
+Repository-derived values (attacker may control them via a PR) are neutralized
+with `sanitizeText()` (`utils/sanitize.ts`) before being written to the
+human-readable output, so embedded ESC/control bytes can't be interpreted as
+ANSI/OSC control sequences (repaint/hide findings, spoof gate status, OSC 52
+clipboard writes, OSC 8 hyperlink spoofing).
+
+- **Apply before styling, not at the boundary.** The CLI itself emits legitimate
+  `ansis` SGR sequences, so sanitizing at `console.log` would strip its own
+  colors, and merely allow-listing SGR would still pass an attacker's SGR
+  through (the originally reported vector). Sanitize each raw untrusted value
+  *before* it is wrapped in `ansis`.
+- **JSON output is left untouched** — JSON encoding already escapes control
+  bytes, so `--output json` consumers get the original values.
+- **Where it lives.** Most sinks are covered centrally in the shared render
+  helpers (`utils/formatting.ts`: issue cards/detail, code context, CVE block,
+  dependency chains, version segments). Commands that render untrusted values
+  outside those helpers sanitize at the render point: `pull-request` (About
+  table, Files, diff-coverage, annotated diff line/hunk/path), `findings`/
+  `finding`, `issues` (overview tables + noise suggestions), `issue`,
+  `repository` (About, Open PRs, overview), `ls`/`directories` (dir/file names).
+- **New commands/helpers** must sanitize each untrusted field (titles, author
+  names, branches, file paths, diff/file content, issue messages, package
+  names, etc.) at the point the raw value enters the output string.
+
 ## Command Aliases
 
 Every command must declare a short alias via `.alias()`. Keep aliases short (2–4 characters) and intuitive:

@@ -18,6 +18,7 @@ import {
   formatVersionSegment,
   formatDependencyChainsLine,
 } from "../utils/formatting";
+import { sanitizeText } from "../utils/sanitize";
 import { SecurityService } from "../api/client/services/SecurityService";
 import { SrmItem } from "../api/client/models/SrmItem";
 import { SearchSRMItems } from "../api/client/models/SearchSRMItems";
@@ -84,7 +85,7 @@ function printFindingCard(item: SrmItem, showRepo: boolean): void {
   // Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository
   const line1Parts: string[] = [colorPriority(item.priority)];
 
-  const catParts = [item.securityCategory, ansis.dim(item.scanType)]
+  const catParts = [sanitizeText(item.securityCategory), ansis.dim(sanitizeText(item.scanType))]
     .filter(Boolean)
     .join(" ");
   if (catParts) line1Parts.push(catParts);
@@ -94,14 +95,14 @@ function printFindingCard(item: SrmItem, showRepo: boolean): void {
   ) as string[];
   if (penTestParts.length > 0) line1Parts.push(penTestParts.join(" "));
 
-  if (showRepo && item.repository) line1Parts.push(ansis.dim(item.repository));
+  if (showRepo && item.repository) line1Parts.push(ansis.dim(sanitizeText(item.repository)));
 
   const idLabel = ansis.hex("#555555")(item.id);
   console.log(line1Parts.join(pipe) + `  ${idLabel}`);
 
   // Line 2: Title
-  console.log(item.title);
-  if (item.affectedTargets) console.log(ansis.dim(item.affectedTargets));
+  console.log(sanitizeText(item.title));
+  if (item.affectedTargets) console.log(ansis.dim(sanitizeText(item.affectedTargets)));
   console.log();
 
   // Line 3: Status DueAt | CVE/CWE | AffectedVersion → FixedVersion | Application | AffectedTargets
@@ -124,7 +125,7 @@ function printFindingCard(item: SrmItem, showRepo: boolean): void {
     if (versionSegment) line3Parts.push(ansis.dim(versionSegment));
   }
 
-  if (item.application) line3Parts.push(ansis.dim(item.application));
+  if (item.application) line3Parts.push(ansis.dim(sanitizeText(item.application)));
   //if (item.affectedTargets) line3Parts.push(ansis.dim(item.affectedTargets));
 
   console.log(line3Parts.join(pipe));

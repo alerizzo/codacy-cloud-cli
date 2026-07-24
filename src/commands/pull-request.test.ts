@@ -1700,6 +1700,131 @@ describe("pull-request command", () => {
     expect(allOutput).not.toContain("Head Commit");
   });
 
+  // ─── Control-character neutralization (CWE-150) ──────────────────────────
+
+  describe("neutralizes terminal control characters in untrusted output", () => {
+    const ESC = "\u001b";
+    const BEL = "\u0007";
+
+    it("neutralizes ESC bytes in the About table (title, author, branch)", async () => {
+      const maliciousPr = {
+        ...mockPrData,
+        pullRequest: {
+          ...mockPrData.pullRequest,
+          title: `Fix bug ${ESC}[31mPWNED-TITLE`,
+          owner: { id: 1, name: `evil${ESC}]0;PWNED-AUTHOR${BEL}` },
+          originBranch: `feat${ESC}[2K-PWNED-BRANCH`,
+        },
+      };
+
+      vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+        maliciousPr as any,
+      );
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
+        .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+      vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      const output = getAllOutput();
+
+      // Visible text survives, so the value isn't silently dropped.
+      expect(output).toContain("PWNED-TITLE");
+      expect(output).toContain("PWNED-AUTHOR");
+      expect(output).toContain("PWNED-BRANCH");
+
+      // The raw attacker sequences must be gone (the CLI's own colour codes
+      // are separate and never precede these unique markers).
+      expect(output).not.toContain(`${ESC}[31mPWNED-TITLE`);
+      expect(output).not.toContain(`${ESC}]0;PWNED-AUTHOR`);
+      expect(output).not.toContain(BEL);
+      expect(output).not.toContain(`${ESC}[2K-PWNED-BRANCH`);
+    });
+
+    it("neutralizes ESC bytes in the annotated diff view (--diff)", async () => {
+      const maliciousDiff = [
+        "diff --git a/src/index.ts b/src/index.ts",
+        "index abc1234..def5678 100644",
+        "--- a/src/index.ts",
+        "+++ b/src/index.ts",
+        "@@ -1,5 +1,6 @@",
+        " function foo() {",
+        "   const x = 1;",
+        `+  const y = 2; ${ESC}[31mINJECTED-DIFF`,
+        "   return x;",
+        " }",
+      ].join("\n");
+
+      vi.mocked(RepositoryService.getPullRequestDiff).mockResolvedValue({
+        diff: maliciousDiff,
+      } as any);
+      vi.mocked(
+        CoverageService.getRepositoryPullRequestFilesCoverage,
+      ).mockResolvedValue({
+        data: [
+          {
+            fileName: "src/index.ts",
+            coverage: 100,
+            diffLineHits: [{ lineNumber: "3", hits: 2 }], // marks the injected line
+          },
+        ],
+      } as any);
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({ data: [], pagination: undefined } as any)
+        .mockResolvedValueOnce({ data: [], pagination: undefined } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42", "--diff",
+      ]);
+
+      const output = getAllOutput();
+
+      // The diff line content is still shown...
+      expect(output).toContain("INJECTED-DIFF");
+      // ...but the raw ESC control sequence is neutralized.
+      expect(output).not.toContain(`${ESC}[31mINJECTED-DIFF`);
+      expect(output).toContain("^[[31mINJECTED-DIFF");
+    });
+
+    it("leaves JSON output untouched so consumers get the original bytes", async () => {
+      const maliciousPr = {
+        ...mockPrData,
+        pullRequest: {
+          ...mockPrData.pullRequest,
+          title: `Fix bug ${ESC}[31mPWNED-TITLE`,
+        },
+      };
+
+      vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(
+        maliciousPr as any,
+      );
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({ analyzed: true, data: [] } as any)
+        .mockResolvedValueOnce({ analyzed: true, data: [] } as any);
+      vi.mocked(AnalysisService.listPullRequestFiles).mockResolvedValue({
+        data: [],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "pull-request", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      // JSON.stringify escapes the ESC byte, preserving the original value —
+      // it is NOT neutralized to caret notation like the human-readable output.
+      const output = getAllOutput();
+      expect(output).toContain("\\u001b[31mPWNED-TITLE");
+    });
+  });
+
   describe("auto-detect from git remote", () => {
     it("should auto-detect provider/org/repo when only prNumber is provided", async () => {
       vi.mocked(AnalysisService.getRepositoryPullRequest).mockResolvedValue(

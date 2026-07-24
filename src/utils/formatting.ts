@@ -14,6 +14,7 @@ import { CveRecord } from "./cve";
 import { AnalysisTool } from "../api/client/models/AnalysisTool";
 import { Tool } from "../api/client/models/Tool";
 import { formatFriendlyDate } from "./output";
+import { sanitizeText } from "./sanitize";
 
 export const SEVERITY_DISPLAY: Record<string, string> = {
   Error: "Critical",
@@ -101,9 +102,11 @@ const CHAIN_FULL_MAX = 3;
  * `a@1 → ... 2 more ... → d@4`). Chains with ≤ 3 packages are shown in full.
  */
 export function formatDependencyChain(chain: string[]): string {
-  if (chain.length <= CHAIN_FULL_MAX) return chain.join(" → ");
-  const hidden = chain.length - 2;
-  return `${chain[0]} → ... ${hidden} more ... → ${chain[chain.length - 1]}`;
+  // Package names come from the repository's manifest — sanitize each segment.
+  const safe = chain.map((pkg) => sanitizeText(pkg));
+  if (safe.length <= CHAIN_FULL_MAX) return safe.join(" → ");
+  const hidden = safe.length - 2;
+  return `${safe[0]} → ... ${hidden} more ... → ${safe[safe.length - 1]}`;
 }
 
 /**
@@ -112,10 +115,13 @@ export function formatDependencyChain(chain: string[]): string {
  * longer chains show the (possibly collapsed) import path plus the fixed version.
  */
 function dependencyChainBody(chain: string[], fixedVersion?: string[]): string {
-  const fixed = fixedVersion?.length ? fixedVersion.join(", ") : "";
+  const fixed = fixedVersion?.length
+    ? fixedVersion.map((v) => sanitizeText(v)).join(", ")
+    : "";
   if (chain.length === 1) {
     // Direct dependency: the package is imported directly, so show how to fix it.
-    return fixed ? `Update ${chain[0]} to ${fixed}` : `Update ${chain[0]}`;
+    const pkg = sanitizeText(chain[0]);
+    return fixed ? `Update ${pkg} to ${fixed}` : `Update ${pkg}`;
   }
   const suffix = fixed ? ` (Fixed in ${fixed})` : "";
   return `${formatDependencyChain(chain)}${suffix}`;
@@ -133,9 +139,12 @@ export function formatVersionSegment(
   options?: { includeUpdatePrefix?: boolean },
 ): string | null {
   if (!affectedVersion) return null;
-  const fixed = fixedVersion?.length ? ` → ${fixedVersion.join(", ")}` : "";
+  // Version strings come from the repository's manifest — sanitize them.
+  const fixed = fixedVersion?.length
+    ? ` → ${fixedVersion.map((v) => sanitizeText(v)).join(", ")}`
+    : "";
   const prefix = options?.includeUpdatePrefix ? "Update " : "";
-  return `${prefix}${affectedVersion}${fixed}`;
+  return `${prefix}${sanitizeText(affectedVersion)}${fixed}`;
 }
 
 /**
@@ -205,21 +214,23 @@ function printIssueCardBody(fields: {
   console.log();
 
   const severity = colorSeverity(fields.severityLevel);
-  const subCat = fields.subCategory ? ` ${fields.subCategory}` : "";
+  const subCat = fields.subCategory
+    ? ` ${sanitizeText(fields.subCategory)}`
+    : "";
   const potentialTag = fields.isPotential
     ? ` ${ansis.dim("|")} ${ansis.dim("POTENTIAL")}`
     : "";
   const id = ansis.hex("#555555")(fields.idText);
   console.log(
-    `${severity} ${ansis.dim("|")} ${fields.category}${subCat}${potentialTag}  ${id}`,
+    `${severity} ${ansis.dim("|")} ${sanitizeText(fields.category)}${subCat}${potentialTag}  ${id}`,
   );
 
-  console.log(fields.message);
+  console.log(sanitizeText(fields.message));
   console.log();
 
-  console.log(ansis.dim(`${fields.filePath}:${fields.lineNumber}`));
+  console.log(ansis.dim(`${sanitizeText(fields.filePath)}:${fields.lineNumber}`));
   if (fields.lineText) {
-    console.log(ansis.dim(fields.lineText.trim()));
+    console.log(ansis.dim(sanitizeText(fields.lineText.trim())));
   }
 }
 
@@ -277,15 +288,17 @@ export function printIgnoredIssueCard(issue: IgnoredIssue): void {
 
   // Ignore metadata: "Ignored as <reason> by <name> · <friendly date>"
   console.log();
-  const reason = issue.reason ? ` as ${issue.reason}` : "";
-  const by = issue.ignoredByName ? ` by ${issue.ignoredByName}` : "";
+  const reason = issue.reason ? ` as ${sanitizeText(issue.reason)}` : "";
+  const by = issue.ignoredByName
+    ? ` by ${sanitizeText(issue.ignoredByName)}`
+    : "";
   const parts = [`Ignored${reason}${by}`];
   if (issue.ignoredTimestamp) {
     parts.push(formatFriendlyDate(issue.ignoredTimestamp));
   }
   console.log(ansis.dim(parts.join(" · ")));
   if (issue.comment) {
-    console.log(ansis.dim(`Comment: ${issue.comment}`));
+    console.log(ansis.dim(`Comment: ${sanitizeText(issue.comment)}`));
   }
 
   console.log();
@@ -567,14 +580,14 @@ export function printCveBlock(cve: CveRecord): void {
     cna.problemTypes?.[0]?.descriptions?.find((d) => d.lang === "en")?.description;
   if (title) {
     console.log();
-    console.log(title);
+    console.log(sanitizeText(title));
   }
 
   // English description
   const desc = cna.descriptions?.find((d) => d.lang === "en")?.value;
   if (desc) {
     console.log();
-    console.log(desc);
+    console.log(sanitizeText(desc));
   }
 
   // Deduplicated references from cna and all adp containers
@@ -592,7 +605,7 @@ export function printCveBlock(cve: CveRecord): void {
     console.log();
     console.log(ansis.bold("References:"));
     for (const ref of uniqueRefs) {
-      console.log(ansis.dim(`  ${ref.url}`));
+      console.log(ansis.dim(`  ${sanitizeText(ref.url)}`));
     }
   }
 }
@@ -612,11 +625,12 @@ export function printFileContext(
 
   for (const line of lines) {
     const num = String(line.number).padStart(width, " ");
-    const content = line.content;
+    // File content is attacker-controllable — neutralize before printing.
+    const content = sanitizeText(line.content);
     if (line.number === issueLine) {
       console.log(ansis.bold(`${num} | ${content}`));
       if (suggestion) {
-        console.log(ansis.bold(ansis.green(`${num} | ${suggestion}`)));
+        console.log(ansis.bold(ansis.green(`${num} | ${sanitizeText(suggestion)}`)));
       }
     } else {
       console.log(ansis.dim(`${num} | ${content}`));
@@ -639,7 +653,7 @@ export function printIssueCodeContext(
   console.log();
 
   // File path : line
-  console.log(ansis.dim(`${issue.filePath}:${issue.lineNumber}`));
+  console.log(ansis.dim(`${sanitizeText(issue.filePath)}:${issue.lineNumber}`));
   console.log();
 
   // Extended code context (or fall back to single line from issue)
@@ -648,9 +662,9 @@ export function printIssueCodeContext(
   } else {
     // Fallback: just show the lineText we already have
     const num = String(issue.lineNumber).padStart(4, " ");
-    console.log(ansis.bold(`${num} | ${issue.lineText}`));
+    console.log(ansis.bold(`${num} | ${sanitizeText(issue.lineText)}`));
     if (issue.suggestion) {
-      console.log(ansis.bold(ansis.green(`${num} | ${issue.suggestion}`)));
+      console.log(ansis.bold(ansis.green(`${num} | ${sanitizeText(issue.suggestion)}`)));
     }
   }
 
@@ -677,35 +691,35 @@ export function printIssueCodeContext(
   if (pattern.description) {
     console.log();
     console.log(ansis.bold("About this pattern"));
-    console.log(pattern.description);
+    console.log(sanitizeText(pattern.description));
   }
 
   // Rationale
   if (pattern.rationale) {
     console.log();
     console.log(ansis.bold("Why is this a problem?"));
-    console.log(pattern.rationale);
+    console.log(sanitizeText(pattern.rationale));
   }
 
   // Solution
   if (pattern.solution) {
     console.log();
     console.log(ansis.bold("How to fix it?"));
-    console.log(pattern.solution);
+    console.log(sanitizeText(pattern.solution));
   }
 
   // Tags
   if (pattern.tags && pattern.tags.length > 0) {
     console.log();
-    console.log(ansis.dim(`Tags: ${pattern.tags.join(", ")}`));
+    console.log(ansis.dim(`Tags: ${pattern.tags.map((t) => sanitizeText(t)).join(", ")}`));
   }
 
   // Detected by
   console.log();
-  const toolName = issue.toolInfo.name;
+  const toolName = sanitizeText(issue.toolInfo.name);
   const patternRef = pattern.title
-    ? `${pattern.title} (${pattern.id})`
-    : pattern.id;
+    ? `${sanitizeText(pattern.title)} (${sanitizeText(pattern.id)})`
+    : sanitizeText(pattern.id);
   console.log(ansis.dim(`Detected by: ${toolName}`));
   console.log(ansis.dim(patternRef));
 }
@@ -726,11 +740,11 @@ export function printIssueDetail(
 
   // Header: Severity | Category SubCategory
   const severity = colorSeverity(p.severityLevel);
-  const subCat = p.subCategory ? ` ${ansis.dim(p.subCategory)}` : "";
-  console.log(`${severity} ${ansis.dim("|")} ${p.category}${subCat}`);
+  const subCat = p.subCategory ? ` ${ansis.dim(sanitizeText(p.subCategory))}` : "";
+  console.log(`${severity} ${ansis.dim("|")} ${sanitizeText(p.category)}${subCat}`);
 
   // Message
-  console.log(issue.message);
+  console.log(sanitizeText(issue.message));
 
   // Code context + pattern info (shared with finding command for Codacy-source findings)
   printIssueCodeContext(issue, pattern, lines);
