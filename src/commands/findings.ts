@@ -85,7 +85,10 @@ function printFindingCard(item: SrmItem, showRepo: boolean): void {
   // Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository
   const line1Parts: string[] = [colorPriority(item.priority)];
 
-  const catParts = [sanitizeText(item.securityCategory), ansis.dim(sanitizeText(item.scanType))]
+  const catParts = [
+    sanitizeText(item.securityCategory),
+    item.scanType ? ansis.dim(sanitizeText(item.scanType)) : undefined,
+  ]
     .filter(Boolean)
     .join(" ");
   if (catParts) line1Parts.push(catParts);
@@ -126,7 +129,6 @@ function printFindingCard(item: SrmItem, showRepo: boolean): void {
   }
 
   if (item.application) line3Parts.push(ansis.dim(sanitizeText(item.application)));
-  //if (item.affectedTargets) line3Parts.push(ansis.dim(item.affectedTargets));
 
   console.log(line3Parts.join(pipe));
 

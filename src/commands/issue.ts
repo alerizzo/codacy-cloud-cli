@@ -97,7 +97,7 @@ Examples:
             startLine,
             endLine,
           ).catch((e) => {
-            console.log("File path: ", sanitizeText(issue.filePath));
+            console.error(ansis.red(`File path: ${sanitizeText(issue.filePath)}`));
             console.error(ansis.red(`Error fetching file content: ${e}`));
             return null;
           }),
