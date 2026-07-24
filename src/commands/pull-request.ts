@@ -1086,6 +1086,9 @@ Examples:
               "issue.falsePositiveThreshold",
               "issue.falsePositiveReason",
               "issue.commitInfo.sha",
+              "issue.advisoryInformation.advisoryId",
+              "issue.advisoryInformation.vulnerableFunctions",
+              "issue.advisoryInformation.publishedAt",
               // Pattern
               "pattern.id",
               "pattern.title",

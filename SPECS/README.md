@@ -15,9 +15,9 @@ _No pending tasks._ All commands implemented.
 | `info` | `inf` | ✅ Done | [info.md](commands/info.md) |
 | `repositories` | `repos` | ✅ Done | [repositories.md](commands/repositories.md) |
 | `repository` | `repo` | ✅ Done (actions added) | [repository.md](commands/repository.md) |
-| `pull-request` | `pr` | ✅ Done (--diff + Diff Coverage Summary added) | [pull-request.md](commands/pull-request.md) |
-| `issues` | `is` | ✅ Done | [issues.md](commands/issues.md) |
-| `issue` | `iss` | ✅ Done | [issue.md](commands/issue.md) |
+| `pull-request` | `pr` | ✅ Done (--diff + Diff Coverage Summary + vulnerable functions added) | [pull-request.md](commands/pull-request.md) |
+| `issues` | `is` | ✅ Done (vulnerable functions added) | [issues.md](commands/issues.md) |
+| `issue` | `iss` | ✅ Done (vulnerable functions added) | [issue.md](commands/issue.md) |
 | `findings` | `fins` | ✅ Done | [findings.md](commands/findings.md) |
 | `finding` | `fin` | ✅ Done (CVE enrichment included) | [finding.md](commands/finding.md) |
 | `tools` | `tls` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
@@ -68,3 +68,4 @@ _No pending tasks._ All commands implemented.
 | 2026-06-02 | `--reanalyze-and-wait` (`-w`) blocking variant for `repository` and `pull-request`: triggers reanalysis, polls to completion (10s interval, 20min cap), then prints issue deltas by pattern/severity/category. New `src/utils/reanalyze-wait.ts` + `formatDuration`/`isBeingAnalyzed` helpers (26 new tests, 356 total) |
 | 2026-06-02 | `issues --overview` improvements: relabel False Positives buckets (`belowThreshold`/`equalOrAboveThreshold` → "Not a False Positive"/"Potential False Positive"), and a "Suggested actions to reduce noise" section that flags noisy patterns (≥10% of issues or ≥3× the average) with a runnable `codacy pattern … --disable` command, resolving the tool via its `prefix` (3 new tests, 360 total) |
 | 2026-06-02 | Pattern config-file & coding-standard awareness: new `pattern <tool> <id>` **info mode** (same card as `patterns`); `pattern`/`patterns` skip listing and refuse updates when a tool uses a local config file; `pattern` refuses to modify coding-standard-enforced patterns; `issues --overview` noise suggestions now render a manual "update your config file / coding standard" step instead of a command when a pattern can't be disabled via CLI. `printPatternCard`/`PATTERN_JSON_FIELDS` moved to `utils/formatting.ts` (11 new tests, 371 total) |
+| 2026-07-24 | (OD-296) Vulnerable/affected functions for SCA issues: `CommitIssue.advisoryInformation` (added server-side in API `57.3.0`, bumped from pinned `55.12.1`) is now read and rendered. `issues`/`issue`/`pull-request` default cards show a compact "Vulnerable functions: fn1, fn2 (+N more)" line (`printIssueCard`); `issue`/`pull-request --issue` detail views show the full block with advisory ID + published date (`printAdvisoryBlock`, wired into `printIssueCodeContext`). Gated purely on `advisoryInformation` presence (no category/scanType check needed). Added to all three commands' JSON `pickDeep` whitelists (10 new tests, 382 total). Originally scoped to the `findings` command, but `SrmItem` has no equivalent field anywhere server-side — redirected to `issues`, where the data already existed in the public API. |

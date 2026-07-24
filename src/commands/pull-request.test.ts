@@ -950,6 +950,114 @@ describe("pull-request command", () => {
     );
   });
 
+  describe("advisory information (vulnerable functions)", () => {
+    const mockAdvisoryInformation = {
+      advisoryId: "GHSA-xxxx-yyyy-zzzz",
+      vulnerableFunctions: ["pkg.Class.method", "pkg.Class.otherMethod"],
+      publishedAt: "2024-01-15T00:00:00.000Z",
+    };
+
+    it("should show a compact vulnerable functions line on the default view's issue cards", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({
+          data: [
+            {
+              ...mockNewIssues.data[2],
+              commitIssue: {
+                ...mockNewIssues.data[2].commitIssue,
+                advisoryInformation: mockAdvisoryInformation,
+              },
+            },
+          ],
+          pagination: undefined,
+        } as any)
+        .mockResolvedValueOnce({ data: [], pagination: undefined } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain(
+        "Vulnerable functions: pkg.Class.method, pkg.Class.otherMethod",
+      );
+    });
+
+    it("should show the full vulnerable functions block in --issue <id> detail view", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({
+          data: [
+            {
+              ...mockNewIssues.data[2],
+              commitIssue: {
+                ...mockNewIssues.data[2].commitIssue,
+                advisoryInformation: mockAdvisoryInformation,
+              },
+            },
+          ],
+          pagination: undefined,
+        } as any)
+        .mockResolvedValueOnce({
+          data: mockPotentialIssues.data,
+          pagination: undefined,
+        } as any);
+      vi.mocked(ToolsService.getPattern).mockResolvedValue({
+        data: mockPattern,
+      } as any);
+      vi.mocked(FileService.getFileContent).mockResolvedValue({
+        data: mockFileLines,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--issue", "3",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Vulnerable Functions (GHSA-xxxx-yyyy-zzzz)");
+      expect(output).toContain("pkg.Class.method");
+      expect(output).toContain("pkg.Class.otherMethod");
+    });
+
+    it("should include advisoryInformation in --issue JSON output", async () => {
+      vi.mocked(AnalysisService.listPullRequestIssues)
+        .mockResolvedValueOnce({
+          data: [
+            {
+              ...mockNewIssues.data[2],
+              commitIssue: {
+                ...mockNewIssues.data[2].commitIssue,
+                advisoryInformation: mockAdvisoryInformation,
+              },
+            },
+          ],
+          pagination: undefined,
+        } as any)
+        .mockResolvedValueOnce({
+          data: mockPotentialIssues.data,
+          pagination: undefined,
+        } as any);
+      vi.mocked(ToolsService.getPattern).mockResolvedValue({
+        data: mockPattern,
+      } as any);
+      vi.mocked(FileService.getFileContent).mockResolvedValue({
+        data: mockFileLines,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "pull-request", "gh", "test-org", "test-repo", "42",
+        "--issue", "3",
+      ]);
+
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"GHSA-xxxx-yyyy-zzzz"'),
+      );
+    });
+  });
+
   // ─── Diff Coverage Summary ─────────────────────────────────────────────
 
   it("should show Diff Coverage Summary when coverage data is available", async () => {

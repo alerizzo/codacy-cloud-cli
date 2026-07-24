@@ -1,6 +1,6 @@
 # `issues` Command Spec
 
-**Status:** ✅ Done (2026-02-19)
+**Status:** ✅ Done (2026-02-19); vulnerable functions line added 2026-07-24
 
 ## Purpose
 
@@ -59,11 +59,18 @@ Card-style format, sorted by severity (Error > High > Warning > Info):
 {FilePath}:{LineNumber}
 {LineText}
 {Optional: Potential false positive warning}
+{Optional: Vulnerable functions: fn1, fn2, fn3 (+N more)}
 
 ────────────────────────────────────────
 ```
 
 Severity colors: Error=red, High=orange, Warning=yellow, Info=blue.
+
+The "Vulnerable functions" line is shown when `issue.advisoryInformation` is present (SCA
+issues linked to an OSV advisory), listing up to 3 function names with a "(+N more)" suffix
+for longer lists. Rendered via `printIssueCard` in `utils/formatting.ts`. `--output json`
+includes the full `advisoryInformation` object (`advisoryId`, `vulnerableFunctions`,
+`publishedAt`) — no truncation there.
 
 Shows pagination warning if more results exist.
 
@@ -111,4 +118,4 @@ calls only run when at least one noisy pattern exists.
 
 ## Tests
 
-File: `src/commands/issues.test.ts` — 46 tests.
+File: `src/commands/issues.test.ts` — 50 tests (46 + 4 for the vulnerable functions line).

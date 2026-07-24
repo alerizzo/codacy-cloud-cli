@@ -737,6 +737,9 @@ Examples:
                   "falsePositiveProbability",
                   "falsePositiveThreshold",
                   "falsePositiveReason",
+                  "advisoryInformation.advisoryId",
+                  "advisoryInformation.vulnerableFunctions",
+                  "advisoryInformation.publishedAt",
                 ]),
               ),
             });

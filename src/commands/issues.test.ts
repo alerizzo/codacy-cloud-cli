@@ -1353,6 +1353,76 @@ describe("issues command", () => {
     });
   });
 
+  describe("advisory information (vulnerable functions)", () => {
+    const mockAdvisoryInformation = {
+      advisoryId: "GHSA-xxxx-yyyy-zzzz",
+      vulnerableFunctions: ["pkg.Class.method", "pkg.Class.otherMethod"],
+      publishedAt: "2024-01-15T00:00:00.000Z",
+    };
+
+    it("should show a compact vulnerable functions line on the card when present", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [{ ...mockIssues[0], advisoryInformation: mockAdvisoryInformation }],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "issues", "gh", "test-org", "test-repo"]);
+
+      const output = getAllOutput();
+      expect(output).toContain(
+        "Vulnerable functions: pkg.Class.method, pkg.Class.otherMethod",
+      );
+    });
+
+    it("should truncate long vulnerable functions lists on the card", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [{
+          ...mockIssues[0],
+          advisoryInformation: {
+            ...mockAdvisoryInformation,
+            vulnerableFunctions: ["fn1", "fn2", "fn3", "fn4", "fn5"],
+          },
+        }],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "issues", "gh", "test-org", "test-repo"]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Vulnerable functions: fn1, fn2, fn3 (+2 more)");
+    });
+
+    it("should not show the vulnerable functions line when absent", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: mockIssues,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "issues", "gh", "test-org", "test-repo"]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Vulnerable functions:");
+    });
+
+    it("should include advisoryInformation in JSON output", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: [{ ...mockIssues[0], advisoryInformation: mockAdvisoryInformation }],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "issues", "gh", "test-org", "test-repo",
+      ]);
+
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"GHSA-xxxx-yyyy-zzzz"'),
+      );
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"pkg.Class.method"'),
+      );
+    });
+  });
+
   describe("auto-detect from git remote", () => {
     it("should auto-detect repo when no positional args are provided", async () => {
       vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({

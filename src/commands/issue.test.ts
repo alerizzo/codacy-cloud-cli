@@ -322,6 +322,59 @@ describe("issue command", () => {
     mockExit.mockRestore();
   });
 
+  describe("advisory information (vulnerable functions)", () => {
+    const mockAdvisoryInformation = {
+      advisoryId: "GHSA-xxxx-yyyy-zzzz",
+      vulnerableFunctions: ["pkg.Class.method", "pkg.Class.otherMethod"],
+      publishedAt: "2024-01-15T00:00:00.000Z",
+    };
+
+    it("should show vulnerable functions block when advisoryInformation is present", async () => {
+      vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+        data: { ...mockIssue, advisoryInformation: mockAdvisoryInformation },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Vulnerable Functions (GHSA-xxxx-yyyy-zzzz)");
+      expect(output).toContain("Published: 2024-01-15");
+      expect(output).toContain("pkg.Class.method");
+      expect(output).toContain("pkg.Class.otherMethod");
+    });
+
+    it("should not show vulnerable functions block when advisoryInformation is absent", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Vulnerable Functions");
+    });
+
+    it("should include advisoryInformation in JSON output", async () => {
+      vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+        data: { ...mockIssue, advisoryInformation: mockAdvisoryInformation },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "issue", "gh", "test-org", "test-repo", "42",
+      ]);
+
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"GHSA-xxxx-yyyy-zzzz"'),
+      );
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"pkg.Class.method"'),
+      );
+    });
+  });
+
   describe("--ignore option", () => {
     beforeEach(() => {
       vi.mocked(AnalysisService.updateIssueState).mockResolvedValue(
