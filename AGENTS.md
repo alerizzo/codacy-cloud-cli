@@ -75,10 +75,11 @@ codacy-cloud-cli/
   - `ora` for loading spinners
   - `dayjs` for date formatting — for "last updated" style dates, use `formatFriendlyDate()` from `utils/output.ts` (relative for today, "Yesterday", otherwise YYYY-MM-DD)
 - **Output:** Default output is human readable with tables and colors, but can be overridden with the `--output json` flag.
-- **Untrusted output (CWE-150 — improper neutralization of control sequences):** Any repository-derived value written to the human-readable output must be passed through `sanitizeText()` from `utils/sanitize.ts` **before** the CLI wraps it in `ansis` styling. This neutralizes terminal control characters (C0/C1/DEL) so a crafted repo can't inject ANSI/OSC escape sequences.
-  - **Sinks to sanitize:** PR/finding titles, author names, branches, file paths, diff/file content, issue messages, and package/version names.
-  - **Where NOT to sanitize:** do **not** sanitize at the `console.log` boundary (that strips the CLI's own legitimate colors), and do **not** sanitize the `--output json` path (JSON encoding already escapes control bytes).
-  - **When adding a command or render helper:** sanitize each untrusted field at the point the raw value enters the output string.
+- **Untrusted output (CWE — Common Weakness Enumeration — 150):** A crafted repo can smuggle ANSI/OSC escape sequences through repository-derived values. Neutralize them so the terminal can't interpret them.
+  - Pass each untrusted value through `sanitizeText()` (`utils/sanitize.ts`) before `ansis` styling — **except** in the two cases below.
+  - **Sinks to sanitize:** PR/finding titles, author names, branches, file paths, diff/file content, issue messages, package/version names.
+  - **Exceptions (do not sanitize):** the `console.log` boundary (it strips the CLI's own colors), and the `--output json` path (JSON already escapes control bytes).
+  - New commands and render helpers sanitize each untrusted field where the raw value enters the output string.
 - **Pagination:** All commands calling paginated APIs must call `printPaginationWarning(response.pagination, hint)` from `utils/output.ts` after displaying results. The hint should suggest command-specific filtering options.
 - **Polling / waiting:** Commands that wait on a remote operation (e.g. `--reanalyze-and-wait`) use the shared helpers in `utils/reanalyze-wait.ts`.
   - Route polling delays through the exported `timers.sleep` so tests can stub it (`vi.spyOn(timers, "sleep").mockResolvedValue()`).
