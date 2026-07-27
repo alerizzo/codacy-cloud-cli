@@ -5,6 +5,7 @@ import pluralize from "pluralize";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { createTable, getOutputFormat, printJson } from "../utils/output";
+import { sanitizeText } from "../utils/sanitize";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import {
   fetchAllDirectories,
@@ -152,10 +153,10 @@ function renderDir(ctx: DirContext, dirs: DirectoryNode[]): void {
   console.log(ansis.bold(`\n${dirHeader(ctx, dirs)}\n`));
   const table = createTable({ head: TABLE_HEAD });
   for (const d of dirs) {
-    table.push([`${FOLDER_GLYPH} ${d.name}`, ...metricCells(d)]);
+    table.push([`${FOLDER_GLYPH} ${sanitizeText(d.name)}`, ...metricCells(d)]);
     for (const child of d.children ?? []) {
       table.push([
-        `${ansis.dim(CHILD_CONNECTOR)}${child.name}`,
+        `${ansis.dim(CHILD_CONNECTOR)}${sanitizeText(child.name)}`,
         ...metricCells(child),
       ]);
     }

@@ -49,6 +49,7 @@ import { FileDiffCoverage } from "../api/client/models/FileDiffCoverage";
 import { PullRequestIssuesResponse } from "../api/client/models/PullRequestIssuesResponse";
 import { FileAnalysisListResponse } from "../api/client/models/FileAnalysisListResponse";
 import { parseDiff } from "../utils/diff";
+import { sanitizeText } from "../utils/sanitize";
 import { RepositoryService } from "../api/client/services/RepositoryService";
 import { IssueStateBody } from "../api/client/models/IssueStateBody";
 
@@ -172,13 +173,13 @@ function printAbout(
   const p = pr.pullRequest;
   const table = createTable();
   table.push({
-    Repository: `${providerDisplayName(provider)} / ${organization} / ${p.repository}`,
+    Repository: `${providerDisplayName(provider)} / ${organization} / ${sanitizeText(p.repository)}`,
   });
-  table.push({ "Pull Request": `#${p.number} — ${p.title}` });
+  table.push({ "Pull Request": `#${p.number} — ${sanitizeText(p.title)}` });
   table.push({ Status: p.status });
-  table.push({ Author: p.owner?.name || ansis.dim("N/A") });
+  table.push({ Author: sanitizeText(p.owner?.name) || ansis.dim("N/A") });
   table.push({
-    Branches: `${p.originBranch || "N/A"} → ${p.targetBranch || "N/A"}`,
+    Branches: `${sanitizeText(p.originBranch) || "N/A"} → ${sanitizeText(p.targetBranch) || "N/A"}`,
   });
   table.push({ Updated: formatFriendlyDate(p.updated) });
 
@@ -354,7 +355,7 @@ function printFilesList(files: FileDeltaAnalysis[]): void {
         : ansis.dim("0");
 
     table.push([
-      truncate(f.file.path, 50),
+      truncate(sanitizeText(f.file.path), 50),
       `${newI} / ${fixI}`,
       formatFileDelta(c?.deltaCoverage, true, true),
       formatFileDelta(q?.deltaComplexity),
@@ -445,7 +446,7 @@ function printDiffCoverageSummary(fileCoverageList: FileDiffCoverage[]): void {
         ? ` | Uncovered lines: ${ansis.red(compressRanges(uncoveredNums))}`
         : "";
 
-    console.log(`${fc.fileName} | ${pctColored}${uncoveredPart}`);
+    console.log(`${sanitizeText(fc.fileName)} | ${pctColored}${uncoveredPart}`);
   }
 }
 
@@ -527,8 +528,10 @@ function printDiffChange(
       ? (s) => s
       : (s) => ansis.dim(s);
 
+  // Diff line content is the strongest untrusted sink — arbitrary bytes,
+  // unbounded length — so neutralize control characters before printing.
   console.log(
-    `${leftSymbol}    ${numPipeColor(`${numStr} ${changeChar}`)} ${contentColor(change.content)}`,
+    `${leftSymbol}    ${numPipeColor(`${numStr} ${changeChar}`)} ${contentColor(sanitizeText(change.content))}`,
   );
 
   // Issue annotations below the code line (severity-colored ┃)
@@ -537,12 +540,12 @@ function printDiffChange(
     const cf = severityColorFn(issue.patternInfo.severityLevel);
     const pipe = cf("┃");
     const subCat = issue.patternInfo.subCategory
-      ? ` ${issue.patternInfo.subCategory}`
+      ? ` ${sanitizeText(issue.patternInfo.subCategory)}`
       : "";
     const potentialTag = tagged.isPotential ? " Potential false positive" : "";
-    const header = `${colorSeverity(issue.patternInfo.severityLevel)} | ${issue.patternInfo.category}${subCat}${potentialTag} #${issue.resultDataId}`;
+    const header = `${colorSeverity(issue.patternInfo.severityLevel)} | ${sanitizeText(issue.patternInfo.category)}${subCat}${potentialTag} #${issue.resultDataId}`;
     console.log(`${pipe}     ↳  ${header}`);
-    console.log(`${pipe}        ${issue.message}`);
+    console.log(`${pipe}        ${sanitizeText(issue.message)}`);
   }
 }
 
@@ -598,7 +601,7 @@ function printAnnotatedDiff(
     if (!hasRelevant) continue;
 
     console.log(sep);
-    console.log(ansis.bold(file.path));
+    console.log(ansis.bold(sanitizeText(file.path)));
 
     for (const hunk of file.hunks) {
       const changes = hunk.changes;
@@ -641,7 +644,9 @@ function printAnnotatedDiff(
 
       if (interestingIdx.size === 0) continue;
 
-      console.log(ansis.dim(hunk.content)); // @@ -x,y +a,b @@ context line
+      // The @@ header trails a git "section heading" (surrounding code) that is
+      // attacker-controllable, so neutralize it too.
+      console.log(ansis.dim(sanitizeText(hunk.content))); // @@ -x,y +a,b @@ context line
 
       // Print changes with "..." for skipped stretches
       let skipped = false;

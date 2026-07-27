@@ -5,6 +5,7 @@ import pluralize from "pluralize";
 import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { createTable, getOutputFormat, printJson } from "../utils/output";
+import { sanitizeText } from "../utils/sanitize";
 import {
   fetchAllDirectories,
   fetchAllFiles,
@@ -184,11 +185,11 @@ function renderLs(
   console.log(ansis.bold(`\n${lsHeader(ctx, dirs.length, files.length)}\n`));
   const table = createTable({ head: TABLE_HEAD });
   for (const d of dirs) {
-    table.push([`${FOLDER_GLYPH} ${d.name}`, ...metricCells(d)]);
+    table.push([`${FOLDER_GLYPH} ${sanitizeText(d.name)}`, ...metricCells(d)]);
   }
   for (const f of files) {
     table.push([
-      `${ansis.dim(FILE_GLYPH)} ${fileLabel(ctx, f.path)}`,
+      `${ansis.dim(FILE_GLYPH)} ${sanitizeText(fileLabel(ctx, f.path))}`,
       ...metricCells(f),
     ]);
   }

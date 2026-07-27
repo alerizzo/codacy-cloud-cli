@@ -25,6 +25,7 @@ import {
   formatPrIssues,
   formatAnalysisStatus,
 } from "../utils/formatting";
+import { sanitizeText } from "../utils/sanitize";
 import {
   AnalysisStatus,
   pollForAnalysis,
@@ -53,10 +54,10 @@ function printAbout(
   const table = createTable();
   table.push(
     {
-      Repository: `${providerDisplayName(repo.provider)} / ${repo.owner} / ${repo.name}`,
+      Repository: `${providerDisplayName(repo.provider)} / ${sanitizeText(repo.owner)} / ${sanitizeText(repo.name)}`,
     },
     { Visibility: repo.visibility },
-    { "Default Branch": repo.defaultBranch?.name || "N/A" },
+    { "Default Branch": sanitizeText(repo.defaultBranch?.name) || "N/A" },
     {
       "Last Updated": repo.lastUpdated
         ? formatFriendlyDate(repo.lastUpdated)
@@ -174,8 +175,8 @@ function printPullRequests(pullRequests: PullRequestWithAnalysis[]): void {
     const gates = buildGateStatus(pr);
     table.push([
       String(pr.pullRequest.number),
-      truncate(pr.pullRequest.title, 40),
-      truncate(pr.pullRequest.originBranch || "N/A", 20),
+      truncate(sanitizeText(pr.pullRequest.title), 40),
+      truncate(sanitizeText(pr.pullRequest.originBranch) || "N/A", 20),
       formatStandards(pr),
       formatPrIssues(pr, gates.issues),
       formatPrCoverage(pr, gates.coverage),
@@ -192,7 +193,7 @@ function printCountTable(title: string, counts: Count[]): void {
   const sorted = [...counts].sort((a, b) => b.total - a.total);
   const table = createTable({ head: [title, "Count"] });
   for (const c of sorted) {
-    table.push([c.name, String(c.total)]);
+    table.push([sanitizeText(c.name), String(c.total)]);
   }
   console.log(table.toString());
 }

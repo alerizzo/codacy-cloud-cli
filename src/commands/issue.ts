@@ -6,6 +6,7 @@ import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import { getOutputFormat, pickDeep, printJson } from "../utils/output";
 import { printIssueDetail } from "../utils/formatting";
+import { sanitizeText } from "../utils/sanitize";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { FileService } from "../api/client/services/FileService";
@@ -96,7 +97,7 @@ Examples:
             startLine,
             endLine,
           ).catch((e) => {
-            console.log("File path: ", issue.filePath);
+            console.error(ansis.red(`File path: ${sanitizeText(issue.filePath)}`));
             console.error(ansis.red(`Error fetching file content: ${e}`));
             return null;
           }),

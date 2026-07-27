@@ -19,6 +19,7 @@ import {
   resolveToolUuids,
   formatCount,
 } from "../utils/formatting";
+import { sanitizeText } from "../utils/sanitize";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { Tool } from "../api/client/models/Tool";
@@ -176,7 +177,7 @@ function printCountTable(title: string, counts: Count[]): void {
   const sorted = [...counts].sort((a, b) => b.total - a.total);
   const table = createTable({ head: [title, "Count"] });
   for (const c of sorted) {
-    table.push([c.name, String(c.total)]);
+    table.push([sanitizeText(c.name), String(c.total)]);
   }
   console.log(table.toString());
 }
@@ -186,7 +187,7 @@ function printPatternsTable(patterns: PatternsCount[]): void {
   const sorted = [...patterns].sort((a, b) => b.total - a.total);
   const table = createTable({ head: ["Pattern", "Count"] });
   for (const p of sorted) {
-    table.push([`${p.title} ${ansis.dim(p.id)}`, String(p.total)]);
+    table.push([`${sanitizeText(p.title)} ${ansis.dim(p.id)}`, String(p.total)]);
   }
   console.log(table.toString());
 }
@@ -436,7 +437,7 @@ function printNoiseSuggestions(
   for (const s of suggestions) {
     const label = s.total === 1 ? "issue" : "issues";
     const reduction = ansis.green(`(-${formatCount(s.total)} ${label})`);
-    console.log(`  Disable ${ansis.bold(`"${s.title}"`)} ${reduction}`);
+    console.log(`  Disable ${ansis.bold(`"${sanitizeText(s.title)}"`)} ${reduction}`);
     if (s.command) {
       console.log(`  ${ansis.dim(">")} ${s.command}`);
     } else if (s.action) {

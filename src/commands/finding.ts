@@ -13,6 +13,7 @@ import {
   printCveBlock,
   printIssueCodeContext,
 } from "../utils/formatting";
+import { sanitizeText } from "../utils/sanitize";
 import { SecurityService } from "../api/client/services/SecurityService";
 import { IgnoreSRMItemBody } from "../api/client/models/IgnoreSRMItemBody";
 import { AnalysisService } from "../api/client/services/AnalysisService";
@@ -49,8 +50,8 @@ function printFindingDetail(
   const line1Parts: string[] = [colorPriority(item.priority)];
 
   const catParts = [
-    item.securityCategory,
-    item.scanType ? ansis.dim(item.scanType) : undefined,
+    sanitizeText(item.securityCategory),
+    item.scanType ? ansis.dim(sanitizeText(item.scanType)) : undefined,
   ]
     .filter(Boolean)
     .join(" ");
@@ -61,13 +62,13 @@ function printFindingDetail(
   ) as string[];
   if (penTestParts.length > 0) line1Parts.push(penTestParts.join(" "));
 
-  if (item.repository) line1Parts.push(ansis.dim(item.repository));
+  if (item.repository) line1Parts.push(ansis.dim(sanitizeText(item.repository)));
 
   const idLabel = ansis.hex("#555555")(item.id);
   console.log(line1Parts.join(pipe) + `  ${idLabel}`);
 
   // Title
-  console.log(item.title);
+  console.log(sanitizeText(item.title));
   console.log();
 
   // Line 2: Status DueAt | CVE/CWE | AffectedVersion → FixedVersion | Application | AffectedTargets
@@ -89,8 +90,8 @@ function printFindingDetail(
     if (versionSegment) line2Parts.push(ansis.dim(versionSegment));
   }
 
-  if (item.application) line2Parts.push(ansis.dim(item.application));
-  if (item.affectedTargets) line2Parts.push(ansis.dim(item.affectedTargets));
+  if (item.application) line2Parts.push(ansis.dim(sanitizeText(item.application)));
+  if (item.affectedTargets) line2Parts.push(ansis.dim(sanitizeText(item.affectedTargets)));
 
   console.log(line2Parts.join(pipe));
 
@@ -108,9 +109,9 @@ function printFindingDetail(
     const ig = item.ignored;
     console.log();
     console.log(
-      ansis.dim(`Ignored by ${ig.authorName} on ${formatDueDate(ig.at)}`),
+      ansis.dim(`Ignored by ${sanitizeText(ig.authorName)} on ${formatDueDate(ig.at)}`),
     );
-    if (ig.reason) console.log(ansis.dim(ig.reason));
+    if (ig.reason) console.log(ansis.dim(sanitizeText(ig.reason)));
   }
 
   // CVE block: shown here only when there is no linked Codacy issue.
@@ -123,18 +124,18 @@ function printFindingDetail(
   // Optional prose fields
   if (item.summary) {
     console.log();
-    console.log(item.summary);
+    console.log(sanitizeText(item.summary));
   }
 
   if (item.additionalInfo) {
     console.log();
-    console.log(item.additionalInfo);
+    console.log(sanitizeText(item.additionalInfo));
   }
 
   if (item.remediation) {
     console.log();
     console.log(ansis.bold("Remediation:"));
-    console.log(item.remediation);
+    console.log(sanitizeText(item.remediation));
   }
 
   // Codacy source: show linked quality issue context + pattern info.
