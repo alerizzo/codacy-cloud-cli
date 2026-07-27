@@ -75,7 +75,7 @@ codacy-cloud-cli/
   - `ora` for loading spinners
   - `dayjs` for date formatting — for "last updated" style dates, use `formatFriendlyDate()` from `utils/output.ts` (relative for today, "Yesterday", otherwise YYYY-MM-DD)
 - **Output:** Default output is human readable with tables and colors, but can be overridden with the `--output json` flag.
-- **Untrusted output (CWE — Common Weakness Enumeration — 150):** A crafted repo can smuggle ANSI/OSC escape sequences through repository-derived values. Neutralize them so the terminal can't interpret them.
+- **Untrusted output — CWE (Common Weakness Enumeration) 150:** A crafted repo can smuggle ANSI/OSC escape sequences through repository-derived values. Neutralize them so the terminal can't interpret them.
   - Pass each untrusted value through `sanitizeText()` (`utils/sanitize.ts`) before `ansis` styling — **except** in the two cases below.
   - **Sinks to sanitize:** PR/finding titles, author names, branches, file paths, diff/file content, issue messages, package/version names.
   - **Exceptions (do not sanitize):** the `console.log` boundary (it strips the CLI's own colors), and the `--output json` path (JSON already escapes control bytes).
