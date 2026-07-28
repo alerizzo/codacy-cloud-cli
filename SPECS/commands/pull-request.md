@@ -1,6 +1,6 @@
 # `pull-request` Command Spec
 
-**Status:** ✅ Done (2026-02-18); `--issue` added 2026-02-23; `--diff` + Diff Coverage Summary added 2026-02-25; ignore/unignore options added 2026-03-02; analysis status + `--reanalyze` added 2026-03-05
+**Status:** ✅ Done (2026-02-18); `--issue` added 2026-02-23; `--diff` + Diff Coverage Summary added 2026-02-25; ignore/unignore options added 2026-03-02; analysis status + `--reanalyze` added 2026-03-05; `--ai-review` added 2026-07-28
 
 ## Purpose
 
@@ -28,6 +28,7 @@ codacy pr gh my-org my-repo 42 --reanalyze
 | `--ignore-comment <comment>` | `-m` | Optional comment for ignore actions |
 | `--unignore-issue <issueId>` | `-U` | Unignore a specific issue in this PR |
 | `--reanalyze` | `-A` | Request reanalysis of the HEAD commit |
+| `--ai-review` | `-r` | Trigger an AI review of this pull request |
 
 ## API Endpoints (default mode, parallel)
 
@@ -113,6 +114,10 @@ src/index.ts | 85.0% | Uncovered lines: 23,32,78-90
 
 Only files with any metric delta change. Columns: file path, issues (+new/-fixed), coverage delta, complexity delta, duplication delta.
 
+## `--ai-review` mode
+
+When `--ai-review` is provided, call [`triggerPullRequestAiReview`](https://api.codacy.com/api/api-docs#triggerpullrequestaireview) (no request body) and print a success/failure message; early return, no data fetched or rendered.
+
 ## Tests
 
-File: `src/commands/pull-request.test.ts` — 27 tests.
+File: `src/commands/pull-request.test.ts` — 29 tests (27 + 2 for `--ai-review`).

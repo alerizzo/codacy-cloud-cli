@@ -705,6 +705,10 @@ export function registerPullRequestCommand(program: Command) {
       "-w, --reanalyze-and-wait",
       "request reanalysis of this pull request, wait for it to finish, then show what changed",
     )
+    .option(
+      "-r, --ai-review",
+      "trigger an AI review of this pull request",
+    )
     .addHelpText(
       "after",
       `
@@ -719,7 +723,8 @@ Examples:
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --ignore-all-false-positives
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --unignore-issue 9901
   $ codacy-cloud-cli pull-request gh my-org my-repo 42 --reanalyze
-  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --reanalyze-and-wait`,
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --reanalyze-and-wait
+  $ codacy-cloud-cli pull-request gh my-org my-repo 42 --ai-review`,
     )
     .action(async function (
       this: Command,
@@ -865,6 +870,27 @@ Examples:
           } catch (reanalyzeErr) {
             spinner.fail(
               `Failed to request reanalysis: ${reanalyzeErr instanceof Error ? reanalyzeErr.message : reanalyzeErr}`,
+            );
+          }
+          return;
+        }
+
+        // --ai-review: trigger an AI review of this pull request
+        if (this.opts().aiReview) {
+          const spinner = ora("Triggering AI review...").start();
+          try {
+            await AnalysisService.triggerPullRequestAiReview(
+              provider,
+              organization,
+              repository,
+              prNumber,
+            );
+            spinner.succeed(
+              "AI review triggered successfully, results will be posted to the pull request shortly.",
+            );
+          } catch (aiReviewErr) {
+            spinner.fail(
+              `Failed to trigger AI review: ${aiReviewErr instanceof Error ? aiReviewErr.message : aiReviewErr}`,
             );
           }
           return;

@@ -318,6 +318,7 @@ Keeps the two command handlers thin: they only supply the API-specific callbacks
 - **`--unignore-issue <id>` mode** (`-U`): same lookup as `--ignore-issue`, calls `updateIssueState` with `{ ignored: false }`
 - **`--reanalyze` mode** (`-A`): fetches PR data to get `headCommitSha`, calls `RepositoryService.reanalyzeCommitById`; early return
 - **`--reanalyze-and-wait` mode** (`-w`): blocking variant — see "Reanalyze and wait" below. Baseline comes from paging `listPullRequestIssues(status="new")`; polling reads the PR's first commit via `getPullRequestCommits(limit=1)` analysis timestamps
+- **`--ai-review` mode** (`-r`): calls `AnalysisService.triggerPullRequestAiReview(provider, organization, repository, prNumber)` (no request body, no polling); early return with a success/failure message, same shape as `--reanalyze`
 - **Analysis status in About**: replaced "Head Commit" with "Analysis" row using `formatAnalysisStatus()` from `utils/formatting.ts`; fetches `getPullRequestCommits(limit=1)` and `listCoverageReports(limit=1)` in parallel with existing calls
 
 ## JSON Output Filtering (`pickDeep`)

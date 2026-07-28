@@ -1534,6 +1534,36 @@ describe("pull-request command", () => {
     });
   });
 
+  describe("--ai-review", () => {
+    it("should trigger an AI review for the pull request", async () => {
+      vi.mocked(AnalysisService.triggerPullRequestAiReview).mockResolvedValue(
+        undefined as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42", "--ai-review",
+      ]);
+
+      expect(AnalysisService.triggerPullRequestAiReview).toHaveBeenCalledWith(
+        "gh", "test-org", "test-repo", 42,
+      );
+    });
+
+    it("should report a failure when triggering the AI review fails", async () => {
+      vi.mocked(AnalysisService.triggerPullRequestAiReview).mockRejectedValue(
+        new Error("Conflict"),
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "pull-request", "gh", "test-org", "test-repo", "42", "--ai-review",
+      ]);
+
+      expect(AnalysisService.triggerPullRequestAiReview).toHaveBeenCalled();
+    });
+  });
+
   describe("--reanalyze-and-wait", () => {
     beforeEach(() => {
       vi.spyOn(timers, "sleep").mockResolvedValue(undefined);
