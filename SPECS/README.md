@@ -17,11 +17,11 @@ _No pending tasks._ All commands implemented.
 | `repository` | `repo` | ✅ Done (actions added) | [repository.md](commands/repository.md) |
 | `ls` | N/A | ✅ Done | [ls.md](commands/ls.md) |
 | `directories` | `dirs` | ✅ Done | [directories.md](commands/directories.md) |
-| `pull-request` | `pr` | ✅ Done (--diff + Diff Coverage Summary added) | [pull-request.md](commands/pull-request.md) |
-| `issues` | `is` | ✅ Done | [issues.md](commands/issues.md) |
-| `issue` | `iss` | ✅ Done | [issue.md](commands/issue.md) |
-| `findings` | `fins` | ✅ Done | [findings.md](commands/findings.md) |
-| `finding` | `fin` | ✅ Done (CVE enrichment included) | [finding.md](commands/finding.md) |
+| `pull-request` | `pr` | ✅ Done (--diff + Diff Coverage Summary + vulnerable functions added) | [pull-request.md](commands/pull-request.md) |
+| `issues` | `is` | ✅ Done (vulnerable functions added) | [issues.md](commands/issues.md) |
+| `issue` | `iss` | ✅ Done (vulnerable functions added) | [issue.md](commands/issue.md) |
+| `findings` | `fins` | ✅ Done (advisoryInformation added) | [findings.md](commands/findings.md) |
+| `finding` | `fin` | ✅ Done (CVE enrichment + advisoryInformation included) | [finding.md](commands/finding.md) |
 | `tools` | `tls` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
 | `tool` | `tl` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
 | `patterns` | `pats` | ✅ Done | [tools-and-patterns.md](commands/tools-and-patterns.md) |
