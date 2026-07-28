@@ -351,6 +351,16 @@ Keeps the two command handlers thin: they only supply the API-specific callbacks
 - **`--reanalyze-and-wait` mode** (`-w`): blocking variant — see "Reanalyze and wait" below. Baseline comes from paging `listPullRequestIssues(status="new")`; polling reads the PR's first commit via `getPullRequestCommits(limit=1)` analysis timestamps
 - **Analysis status in About**: replaced "Head Commit" with "Analysis" row using `formatAnalysisStatus()` from `utils/formatting.ts`; fetches `getPullRequestCommits(limit=1)` and `listCoverageReports(limit=1)` in parallel with existing calls
 
+## pull-requests command (`pull-requests.ts`)
+
+The plural counterpart to `pull-request` — lists PRs for a repository instead of showing one by number.
+
+- Takes `[provider] [organization] [repository]` — all optional, auto-detected from the git remote via `resolveRepoArgs(..., 0, ...)` when omitted (same pattern as `repository`/`ls`/`directories`), unlike `findings`' older hand-rolled arg-count branching
+- `-q, --search-text <text>` and `-b, --branch <name>` map straight to `AnalysisService.listRepositoryPullRequests`'s `textQuery`/`targetBranch` params (added server-side in OD-376, on the same `57.3.9` client bump that also brought `SrmItem.advisoryInformation`). The endpoint's own `search` param (Merged vs. last-updated classification) is a different axis and deliberately not exposed by this command — always passed as `undefined`
+- `-n, --limit <n>` (default 100, max 1000) with the same paginate-to-limit loop as `findings`: request `pageSize = min(limit, 100)`, follow `pagination.cursor`, stop once `items.length >= limit`, then trim to the exact limit
+- Table columns (`#`, Title, Branch, ✓, Issues, Coverage, Complexity, Duplication, Updated) and their rendering are the **same shared helpers** `repository`'s "Open Pull Requests" table uses (`buildGateStatus`, `formatStandards`, `formatPrIssues`, `formatPrCoverage`, `formatDelta`) — Branch shows `targetBranch` (truncated 20) rather than `originBranch`, since that's the dimension this command's `--branch` filters on
+- Shows pagination warning (suggesting `--limit`, `--search-text`, `--branch`) when more results exist than were fetched, same as `findings`
+
 ## JSON Output Filtering (`pickDeep`)
 
 All commands that output JSON now filter their response using `pickDeep(data, paths)` from `utils/output.ts`. This ensures the JSON output only includes fields that correspond to what's shown in the console table/card output.
