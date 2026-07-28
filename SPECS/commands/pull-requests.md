@@ -47,3 +47,5 @@ Table format, columns:
 ## Tests
 
 File: `src/commands/pull-requests.test.ts` — 10 tests.
+
+Manually verified against `gh codacy codacy-website`: `--branch main` → 0 results (repo's PRs all target `master`), `--branch master` → matches the unfiltered count, `--search-text "AI"` → narrows to exactly the one matching title, `--output json` shape correct, and `[provider] [org] [repo]` auto-detect from the git remote works from inside a real checkout.
