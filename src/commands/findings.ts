@@ -17,6 +17,7 @@ import {
   formatDueDate,
   formatVersionSegment,
   formatDependencyChainsLine,
+  summarizeFunctions,
 } from "../utils/formatting";
 import { sanitizeText } from "../utils/sanitize";
 import { SecurityService } from "../api/client/services/SecurityService";
@@ -139,6 +140,13 @@ function printFindingCard(item: SrmItem, showRepo: boolean): void {
       item.fixedVersion,
     );
     if (chainLine) console.log(ansis.dim(chainLine));
+  }
+
+  // Vulnerable functions (findings with an OSV-linked advisory), compact form
+  if (item.advisoryInformation) {
+    console.log(
+      ansis.dim(`Vulnerable functions: ${summarizeFunctions(item.advisoryInformation.vulnerableFunctions)}`),
+    );
   }
 
   console.log();
@@ -326,6 +334,9 @@ Examples:
               "application",
               "affectedTargets",
               "dependencyChains",
+              "advisoryInformation.advisoryId",
+              "advisoryInformation.vulnerableFunctions",
+              "advisoryInformation.publishedAt",
             ])),
             total,
           });

@@ -1,6 +1,6 @@
 # `finding` Command Spec
 
-**Status:** ✅ Done (2026-02-24); CVE enrichment ✅ Done (2026-02-24)
+**Status:** ✅ Done (2026-02-24); CVE enrichment ✅ Done (2026-02-24); vulnerable functions (advisoryInformation) ✅ Done (2026-07-28)
 
 ## Purpose
 
@@ -36,6 +36,7 @@ The `findingId` is the UUID shown in dim gray at the end of each findings card.
    - Then in parallel: `ToolsService.getPattern(toolUuid, patternId)` + `FileService.getFileContent(...)`
    - Failures at steps 2/3 are silently caught — the finding is still shown
 3. When `item.cve` is present, fetch CVE data from `https://cveawg.mitre.org/api/cve/{CVE-ID}` in parallel with step 2
+4. `item.advisoryInformation` (vulnerable functions), when present, comes inline on the `getSecurityItem` response itself — no extra request
 
 ## Output Format
 
@@ -55,6 +56,8 @@ The `findingId` is the UUID shown in dim gray at the end of each findings card.
 {Optional: Remediation:}
 {Optional: remediation}
 
+{Optional: Vulnerable Functions block, from item.advisoryInformation — only when there is no linked Codacy issue}
+
 {For Codacy-source: shared printIssueCodeContext output — file context + pattern docs}
 ```
 
@@ -70,6 +73,10 @@ When `item.cve` is present, fetch CVE data from `https://cveawg.mitre.org/api/cv
 
 For Codacy-source findings, the CVE block is injected between the code context and the pattern documentation. For non-Codacy-source findings, it follows the prose fields.
 
+## Vulnerable functions (advisoryInformation)
+
+When `item.advisoryInformation` is present, shows the shared `printAdvisoryBlock` (advisory ID header, optional published date, one bullet per vulnerable function) via `utils/formatting.ts` — the same renderer used by `issue`/`pull-request --issue`. Shown here only when there is **no** linked Codacy issue; when there is one, `printIssueCodeContext` already renders the equivalent block from `issue.advisoryInformation`, so this avoids a duplicate. This is what makes vulnerable functions visible for SCA/dependency findings and any other non-Codacy-source finding, which have no linked issue to borrow the block from. Included in `--output json` as `finding.advisoryInformation.{advisoryId,vulnerableFunctions,publishedAt}`.
+
 ## Dependency import chains (SCA)
 
 When a finding carries `dependencyChains` (`string[][]`), **all** chains are listed
@@ -83,4 +90,4 @@ to `<first> → ... N more ... → <last>`). See `SPECS/commands/findings.md`.
 
 ## Tests
 
-File: `src/commands/finding.test.ts` — 23 tests.
+File: `src/commands/finding.test.ts` — 26 tests (23 + 3 for advisoryInformation).

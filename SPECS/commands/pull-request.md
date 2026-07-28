@@ -1,6 +1,6 @@
 # `pull-request` Command Spec
 
-**Status:** ✅ Done (2026-02-18); `--issue` added 2026-02-23; `--diff` + Diff Coverage Summary added 2026-02-25; ignore/unignore options added 2026-03-02; analysis status + `--reanalyze` added 2026-03-05
+**Status:** ✅ Done (2026-02-18); `--issue` added 2026-02-23; `--diff` + Diff Coverage Summary added 2026-02-25; ignore/unignore options added 2026-03-02; analysis status + `--reanalyze` added 2026-03-05; vulnerable functions (default cards + `--issue` detail) added 2026-07-24
 
 ## Purpose
 
@@ -45,7 +45,12 @@ When `--issue <issueId>` is provided:
 1. Fetch all PR issues (confirmed + potential) using `fetchAllPrIssues()` pagination helper
 2. Find the issue by `resultDataId`
 3. Fetch `getPattern` + `getFileContent` in parallel
-4. Render using shared `printIssueDetail` from `utils/formatting.ts`
+4. Render using shared `printIssueDetail` from `utils/formatting.ts` — includes the Vulnerable
+   Functions block (see `issue.md`) when `advisoryInformation` is present, since it's shared
+   via `printIssueCodeContext`
+
+Default-mode issue cards (and `--issue` cards) also show the compact "Vulnerable functions:"
+line — see `issues.md` for the format, shared via `printIssueCard`.
 
 ## `--diff` mode
 

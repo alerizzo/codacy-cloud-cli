@@ -6,6 +6,7 @@ import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAna
 import { AnalysisResultReason } from "../api/client/models/AnalysisResultReason";
 import { CommitIssue } from "../api/client/models/CommitIssue";
 import { IgnoredIssue } from "../api/client/models/IgnoredIssue";
+import { AdvisoryInformation } from "../api/client/models/AdvisoryInformation";
 import { SeverityLevel } from "../api/client/models/SeverityLevel";
 import { Pattern } from "../api/client/models/Pattern";
 import { ConfiguredPattern } from "../api/client/models/ConfiguredPattern";
@@ -262,8 +263,24 @@ export function printIssueCard(
     console.log(ansis.yellow(`Potential false positive: ${reason}`));
   }
 
+  // Vulnerable functions (SCA issues with an OSV-linked advisory), compact form
+  if (issue.advisoryInformation) {
+    console.log();
+    console.log(ansis.dim(`Vulnerable functions: ${summarizeFunctions(issue.advisoryInformation.vulnerableFunctions)}`));
+  }
+
   console.log();
   console.log(CARD_SEPARATOR);
+}
+
+/**
+ * Summarize a list of vulnerable function names for compact card display,
+ * capping at 3 entries with a "+N more" suffix for longer lists.
+ */
+export function summarizeFunctions(fns: string[], limit = 3): string {
+  const shown = fns.slice(0, limit).join(", ");
+  const more = fns.length > limit ? ` (+${fns.length - limit} more)` : "";
+  return `${shown}${more}`;
 }
 
 /**
@@ -611,6 +628,23 @@ export function printCveBlock(cve: CveRecord): void {
 }
 
 /**
+ * Print an advisory enrichment block: the vulnerable functions and published
+ * date for the OSV advisory linked to an SCA issue. Shown inside
+ * `printIssueCodeContext` whenever `CommitIssue.advisoryInformation` is present.
+ */
+export function printAdvisoryBlock(advisory: AdvisoryInformation): void {
+  console.log();
+  console.log(ansis.bold(`Vulnerable Functions (${advisory.advisoryId})`));
+  if (advisory.publishedAt) {
+    console.log(ansis.dim(`Published: ${formatDueDate(advisory.publishedAt)}`));
+  }
+  console.log();
+  for (const fn of advisory.vulnerableFunctions) {
+    console.log(`  • ${fn}`);
+  }
+}
+
+/**
  * Format and print the ±5 line code context around the issue.
  * The issue line is shown in bold; an optional suggestion is shown
  * in green+bold on the same line number directly below it.
@@ -681,6 +715,11 @@ export function printIssueCodeContext(
   // CVE enrichment — injected between code context and pattern docs
   if (cveData) {
     printCveBlock(cveData);
+  }
+
+  // Advisory enrichment — vulnerable functions for SCA issues with an OSV-linked advisory
+  if (issue.advisoryInformation) {
+    printAdvisoryBlock(issue.advisoryInformation);
   }
 
   if (!pattern) {

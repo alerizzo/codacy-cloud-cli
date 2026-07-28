@@ -599,6 +599,60 @@ describe("finding command", () => {
     mockExit.mockRestore();
   });
 
+  describe("advisory information (vulnerable functions)", () => {
+    const mockAdvisoryInformation = {
+      advisoryId: "CVE-2021-23337",
+      vulnerableFunctions: ["lodash.merge", "lodash.mergeWith"],
+      publishedAt: "2021-02-15T00:00:00.000Z",
+    };
+
+    it("should show vulnerable functions block for a non-Codacy finding with advisoryInformation", async () => {
+      vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+        data: { ...mockScaFinding, advisoryInformation: mockAdvisoryInformation },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "finding", "gh", "test-org", "abc-123-sca",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Vulnerable Functions (CVE-2021-23337)");
+      expect(output).toContain("lodash.merge");
+      expect(output).toContain("lodash.mergeWith");
+    });
+
+    it("should not show vulnerable functions block when advisoryInformation is absent", async () => {
+      vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+        data: mockScaFinding,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "finding", "gh", "test-org", "abc-123-sca",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Vulnerable Functions");
+    });
+
+    it("should include advisoryInformation in JSON output", async () => {
+      vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+        data: { ...mockScaFinding, advisoryInformation: mockAdvisoryInformation },
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "finding", "gh", "test-org", "abc-123-sca",
+      ]);
+
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"lodash.merge"'),
+      );
+    });
+  });
+
   describe("--ignore option", () => {
     beforeEach(() => {
       vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({

@@ -725,6 +725,60 @@ describe("findings command", () => {
     mockExit.mockRestore();
   });
 
+  describe("advisory information (vulnerable functions)", () => {
+    const mockAdvisoryInformation = {
+      advisoryId: "CVE-2026-27903",
+      vulnerableFunctions: ["minimatch.braceExpand", "minimatch.makeRe"],
+      publishedAt: "2026-01-15T00:00:00.000Z",
+    };
+
+    it("should show a compact vulnerable functions line when advisoryInformation is present", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [{ ...mockScaDirect, advisoryInformation: mockAdvisoryInformation }],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "findings", "gh", "test-org", "test-repo",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain(
+        "Vulnerable functions: minimatch.braceExpand, minimatch.makeRe",
+      );
+    });
+
+    it("should not show a vulnerable functions line when advisoryInformation is absent", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [mockScaDirect],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "findings", "gh", "test-org", "test-repo",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).not.toContain("Vulnerable functions:");
+    });
+
+    it("should include advisoryInformation in JSON output", async () => {
+      vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+        data: [{ ...mockScaDirect, advisoryInformation: mockAdvisoryInformation }],
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json",
+        "findings", "gh", "test-org", "test-repo",
+      ]);
+
+      expect(console.log).toHaveBeenCalledWith(
+        expect.stringContaining('"minimatch.braceExpand"'),
+      );
+    });
+  });
+
   describe("auto-detect from git remote", () => {
     it("should auto-detect provider/org/repo when no positional args are provided", async () => {
       vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({

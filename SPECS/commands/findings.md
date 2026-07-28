@@ -1,6 +1,6 @@
 # `findings` Command Spec
 
-**Status:** ✅ Done (2026-02-20)
+**Status:** ✅ Done (2026-02-20); vulnerable functions (advisoryInformation) ✅ Done (2026-07-28)
 
 ## Purpose
 
@@ -46,6 +46,7 @@ Card-style format:
 
 {Status} {DueAt} | {Optional: CVE or CWE} | {Optional: AffectedVersion → FixedVersion} | {Optional: Application}
 {Optional: Dependency import chain (SCA findings with dependencyChains)}
+{Optional: Vulnerable functions: fn1, fn2 (+N more) — from item.advisoryInformation}
 
 ────────────────────────────────────────
 ```
@@ -68,6 +69,10 @@ is dropped from the status line (it would duplicate the chain line).
 - Chains with **4+ packages** collapse their middle: `<first> → ... N more ... → <last>` (N = length − 2).
 - Multiple chains append `... and X more` (X = chains − 1).
 
+### Vulnerable functions (advisoryInformation)
+
+When an item carries `advisoryInformation` (`{advisoryId, vulnerableFunctions, publishedAt}`), a compact `Vulnerable functions: fn1, fn2 (+N more)` line is shown below the status/chain lines, via the shared `summarizeFunctions` helper (`utils/formatting.ts`, capped at 3 entries) — same rendering as `issue`/`pull-request`'s card view. Included in `--output json` as `advisoryInformation.{advisoryId,vulnerableFunctions,publishedAt}` per item.
+
 ## Tests
 
-File: `src/commands/findings.test.ts` — 24 tests.
+File: `src/commands/findings.test.ts` — 27 tests (24 + 3 for advisoryInformation).

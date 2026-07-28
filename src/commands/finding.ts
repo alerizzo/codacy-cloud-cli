@@ -11,6 +11,7 @@ import {
   formatVersionSegment,
   formatDependencyChainsBlock,
   printCveBlock,
+  printAdvisoryBlock,
   printIssueCodeContext,
 } from "../utils/formatting";
 import { sanitizeText } from "../utils/sanitize";
@@ -119,6 +120,14 @@ function printFindingDetail(
   // and injected between the code context and the pattern documentation.
   if (cveData && !issue) {
     printCveBlock(cveData);
+  }
+
+  // Advisory block (vulnerable functions): shown here only when there is no linked
+  // Codacy issue — when there IS one, printIssueCodeContext already renders the same
+  // enrichment from issue.advisoryInformation. This covers SCA/dependency findings
+  // (and any other non-Codacy-source finding), which have no linked issue at all.
+  if (item.advisoryInformation && !issue) {
+    printAdvisoryBlock(item.advisoryInformation);
   }
 
   // Optional prose fields
@@ -271,6 +280,9 @@ Examples:
             "finding.remediation",
             "finding.itemSource",
             "finding.itemSourceId",
+            "finding.advisoryInformation.advisoryId",
+            "finding.advisoryInformation.vulnerableFunctions",
+            "finding.advisoryInformation.publishedAt",
             // Issue (Codacy source)
             "issue.patternInfo.severityLevel",
             "issue.patternInfo.category",
