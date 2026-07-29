@@ -5,10 +5,9 @@ import { checkApiToken } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { getOutputFormat, pickDeep, printJson } from "../utils/output";
 import {
-  colorPriority,
-  colorStatus,
+  buildFindingHeaderLine,
+  buildFindingStatusLine,
   formatDueDate,
-  formatVersionSegment,
   formatDependencyChainsBlock,
   printCveBlock,
   printAdvisoryBlock,
@@ -43,58 +42,20 @@ function printFindingDetail(
   lines: CodeBlockLine[] | null,
   cveData: CveRecord | null,
 ): void {
-  const pipe = ` ${ansis.dim("|")} `;
-
   console.log();
 
   // Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository  <id>
-  const line1Parts: string[] = [colorPriority(item.priority)];
-
-  const catParts = [
-    sanitizeText(item.securityCategory),
-    item.scanType ? ansis.dim(sanitizeText(item.scanType)) : undefined,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  if (catParts) line1Parts.push(catParts);
-
-  const penTestParts = [item.likelihood, item.effortToFix].filter(
-    (v) => v && v !== "not_applicable",
-  ) as string[];
-  if (penTestParts.length > 0) line1Parts.push(penTestParts.join(" "));
-
-  if (item.repository) line1Parts.push(ansis.dim(sanitizeText(item.repository)));
-
-  const idLabel = ansis.hex("#555555")(item.id);
-  console.log(line1Parts.join(pipe) + `  ${idLabel}`);
+  console.log(buildFindingHeaderLine(item, true));
 
   // Title
   console.log(sanitizeText(item.title));
   console.log();
 
   // Line 2: Status DueAt | CVE/CWE | AffectedVersion → FixedVersion | Application | AffectedTargets
-  const line2Parts: string[] = [
-    `${colorStatus(item.status)} ${ansis.dim(formatDueDate(item.dueAt))}`,
-  ];
-
-  if (item.cve) line2Parts.push(ansis.dim(item.cve));
-  else if (item.cwe) line2Parts.push(ansis.dim(`CWE-${item.cwe}`));
-
-  // When dependency chains are present they carry the vulnerable package and
-  // fixed version on their own line, so the redundant version segment is dropped.
   const hasChains = !!item.dependencyChains?.length;
-  if (!hasChains) {
-    const versionSegment = formatVersionSegment(
-      item.affectedVersion,
-      item.fixedVersion,
-    );
-    if (versionSegment) line2Parts.push(ansis.dim(versionSegment));
-  }
-
-  if (item.application) line2Parts.push(ansis.dim(sanitizeText(item.application)));
-  if (item.affectedTargets) line2Parts.push(ansis.dim(sanitizeText(item.affectedTargets)));
-
-  console.log(line2Parts.join(pipe));
+  console.log(
+    buildFindingStatusLine(item, hasChains, { includeAffectedTargets: true }),
+  );
 
   // Dependency import chains (SCA findings with dependencyChains)
   if (hasChains) {

@@ -207,6 +207,10 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
 - `formatPrCoverage(pr, passing)` — diffCoverage% (+/-deltaCoverage%)
 - `formatPrIssues(pr, passing)` — +newIssues (colored by gate) / -fixedIssues (always gray)
 
+Finding header/status line helpers shared between `findings.ts` (list) and `finding.ts` (detail) — kept in `formatting.ts` so the two views can't drift and every untrusted field (`securityCategory`, `scanType`, `likelihood`, `effortToFix`, `repository`, `cve`, `cwe`, `application`, `affectedTargets`) is sanitized in one place:
+- `buildFindingHeaderLine(item, showRepo)` — `Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository  <id>`; `showRepo` lets the list omit the repo segment (detail always passes `true`)
+- `buildFindingStatusLine(item, hasChains, { includeUpdatePrefix, includeAffectedTargets })` — `Status DueAt | CVE/CWE | AffectedVersion → FixedVersion | Application [| AffectedTargets]`; the list passes `includeUpdatePrefix: true` (own `AffectedTargets` line instead), the detail passes `includeAffectedTargets: true` (no update prefix)
+
 Dependency-chain helpers shared between `findings.ts` (list) and `finding.ts` (detail):
 - `formatVersionSegment(affectedVersion, fixedVersion, { includeUpdatePrefix })` — the `affected → fixed` status-line segment shown when a finding has no dependency chains; `includeUpdatePrefix` prepends `Update ` (list uses it, detail doesn't); returns `null` when there's no affected version
 - `formatDependencyChain(chain)` — joins a chain with ` → `, collapsing the middle to `<first> → ... N more ... → <last>` when it has 4+ packages (≤ 3 shown in full)

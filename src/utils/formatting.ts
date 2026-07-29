@@ -11,6 +11,7 @@ import { SeverityLevel } from "../api/client/models/SeverityLevel";
 import { Pattern } from "../api/client/models/Pattern";
 import { ConfiguredPattern } from "../api/client/models/ConfiguredPattern";
 import { CodeBlockLine } from "../api/client/models/CodeBlockLine";
+import { SrmItem } from "../api/client/models/SrmItem";
 import { CveRecord } from "./cve";
 import { AnalysisTool } from "../api/client/models/AnalysisTool";
 import { Tool } from "../api/client/models/Tool";
@@ -84,6 +85,75 @@ export function formatDueDate(dateStr: string): string {
   const date = parseISO(dateStr);
   if (!isValid(date)) return "N/A";
   return dateFnsFormat(date, "yyyy-MM-dd");
+}
+
+// --- Finding header/status lines -------------------------------------------
+//
+// Shared between findings.ts (list) and finding.ts (detail) so the two views
+// can't drift out of sync and so untrusted fields are sanitized in one place.
+
+/**
+ * Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository  <id>
+ * `showRepo` lets the findings list omit the repository segment when it's
+ * already implied (single-repo query); the finding detail always passes true.
+ */
+export function buildFindingHeaderLine(item: SrmItem, showRepo: boolean): string {
+  const pipe = ` ${ansis.dim("|")} `;
+  const parts: string[] = [colorPriority(item.priority)];
+
+  const catParts = [
+    sanitizeText(item.securityCategory),
+    item.scanType ? ansis.dim(sanitizeText(item.scanType)) : undefined,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  if (catParts) parts.push(catParts);
+
+  const penTestParts = [item.likelihood, item.effortToFix]
+    .filter((v) => v && v !== "not_applicable")
+    .map((v) => sanitizeText(v as string));
+  if (penTestParts.length > 0) parts.push(penTestParts.join(" "));
+
+  if (showRepo && item.repository) parts.push(ansis.dim(sanitizeText(item.repository)));
+
+  const idLabel = ansis.hex("#555555")(item.id);
+  return parts.join(pipe) + `  ${idLabel}`;
+}
+
+/**
+ * Status DueAt | CVE/CWE | AffectedVersion → FixedVersion | Application [| AffectedTargets]
+ * `includeUpdatePrefix` and `includeAffectedTargets` capture the two spots
+ * where the list and detail views intentionally differ (see findings.ts /
+ * finding.ts call sites).
+ */
+export function buildFindingStatusLine(
+  item: SrmItem,
+  hasChains: boolean,
+  options: { includeUpdatePrefix?: boolean; includeAffectedTargets?: boolean } = {},
+): string {
+  const pipe = ` ${ansis.dim("|")} `;
+  const parts: string[] = [
+    `${colorStatus(item.status)} ${ansis.dim(formatDueDate(item.dueAt))}`,
+  ];
+
+  if (item.cve) parts.push(ansis.dim(sanitizeText(item.cve)));
+  else if (item.cwe) parts.push(ansis.dim(`CWE-${sanitizeText(item.cwe)}`));
+
+  // When dependency chains are present they carry the vulnerable package and
+  // fixed version on their own line, so the redundant version segment is dropped.
+  if (!hasChains) {
+    const versionSegment = formatVersionSegment(item.affectedVersion, item.fixedVersion, {
+      includeUpdatePrefix: options.includeUpdatePrefix ?? false,
+    });
+    if (versionSegment) parts.push(ansis.dim(versionSegment));
+  }
+
+  if (item.application) parts.push(ansis.dim(sanitizeText(item.application)));
+  if (options.includeAffectedTargets && item.affectedTargets) {
+    parts.push(ansis.dim(sanitizeText(item.affectedTargets)));
+  }
+
+  return parts.join(pipe);
 }
 
 // --- Dependency chains (SCA findings) -------------------------------------

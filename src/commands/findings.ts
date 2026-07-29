@@ -12,10 +12,8 @@ import {
 } from "../utils/output";
 import {
   printSection,
-  colorPriority,
-  colorStatus,
-  formatDueDate,
-  formatVersionSegment,
+  buildFindingHeaderLine,
+  buildFindingStatusLine,
   formatDependencyChainsLine,
   summarizeFunctions,
 } from "../utils/formatting";
@@ -77,56 +75,6 @@ function normalizeScanType(input: string): string {
   );
 }
 
-// Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository
-function buildFindingHeaderLine(item: SrmItem, showRepo: boolean): string {
-  const pipe = ` ${ansis.dim("|")} `;
-  const parts: string[] = [colorPriority(item.priority)];
-
-  const catParts = [
-    sanitizeText(item.securityCategory),
-    item.scanType ? ansis.dim(sanitizeText(item.scanType)) : undefined,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  if (catParts) parts.push(catParts);
-
-  const penTestParts = [item.likelihood, item.effortToFix].filter(
-    (v) => v && v !== "not_applicable",
-  ) as string[];
-  if (penTestParts.length > 0) parts.push(penTestParts.join(" "));
-
-  if (showRepo && item.repository) parts.push(ansis.dim(sanitizeText(item.repository)));
-
-  const idLabel = ansis.hex("#555555")(item.id);
-  return parts.join(pipe) + `  ${idLabel}`;
-}
-
-// Line 3: Status DueAt | CVE/CWE | AffectedVersion → FixedVersion | Application
-function buildFindingStatusLine(item: SrmItem, hasChains: boolean): string {
-  const pipe = ` ${ansis.dim("|")} `;
-  const parts: string[] = [
-    `${colorStatus(item.status)} ${ansis.dim(formatDueDate(item.dueAt))}`,
-  ];
-
-  if (item.cve) parts.push(ansis.dim(item.cve));
-  else if (item.cwe) parts.push(ansis.dim(`CWE-${item.cwe}`));
-
-  // When dependency chains are present they carry the vulnerable package and
-  // fixed version on their own line, so the redundant version segment is dropped.
-  if (!hasChains) {
-    const versionSegment = formatVersionSegment(
-      item.affectedVersion,
-      item.fixedVersion,
-      { includeUpdatePrefix: true },
-    );
-    if (versionSegment) parts.push(ansis.dim(versionSegment));
-  }
-
-  if (item.application) parts.push(ansis.dim(sanitizeText(item.application)));
-
-  return parts.join(pipe);
-}
-
 function printFindingCard(item: SrmItem, showRepo: boolean): void {
   const separator = ansis.dim("─".repeat(40));
 
@@ -139,7 +87,7 @@ function printFindingCard(item: SrmItem, showRepo: boolean): void {
   console.log();
 
   const hasChains = !!item.dependencyChains?.length;
-  console.log(buildFindingStatusLine(item, hasChains));
+  console.log(buildFindingStatusLine(item, hasChains, { includeUpdatePrefix: true }));
 
   // Line 4: dependency import chain (SCA findings with dependencyChains)
   if (hasChains) {
