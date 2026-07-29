@@ -127,6 +127,9 @@ Examples:
             "issue.falsePositiveProbability",
             "issue.falsePositiveThreshold",
             "issue.falsePositiveReason",
+            "issue.advisoryInformation.advisoryId",
+            "issue.advisoryInformation.vulnerableFunctions",
+            "issue.advisoryInformation.publishedAt",
             // Pattern
             "pattern.id",
             "pattern.title",

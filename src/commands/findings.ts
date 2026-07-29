@@ -17,6 +17,7 @@ import {
   formatDueDate,
   formatVersionSegment,
   formatDependencyChainsLine,
+  summarizeFunctions,
 } from "../utils/formatting";
 import { sanitizeText } from "../utils/sanitize";
 import { SecurityService } from "../api/client/services/SecurityService";
@@ -76,14 +77,10 @@ function normalizeScanType(input: string): string {
   );
 }
 
-function printFindingCard(item: SrmItem, showRepo: boolean): void {
-  const separator = ansis.dim("─".repeat(40));
+// Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository
+function buildFindingHeaderLine(item: SrmItem, showRepo: boolean): string {
   const pipe = ` ${ansis.dim("|")} `;
-
-  console.log();
-
-  // Line 1: Priority | SecurityCategory ScanType | Likelihood EffortToFix | Repository
-  const line1Parts: string[] = [colorPriority(item.priority)];
+  const parts: string[] = [colorPriority(item.priority)];
 
   const catParts = [
     sanitizeText(item.securityCategory),
@@ -91,46 +88,58 @@ function printFindingCard(item: SrmItem, showRepo: boolean): void {
   ]
     .filter(Boolean)
     .join(" ");
-  if (catParts) line1Parts.push(catParts);
+  if (catParts) parts.push(catParts);
 
   const penTestParts = [item.likelihood, item.effortToFix].filter(
     (v) => v && v !== "not_applicable",
   ) as string[];
-  if (penTestParts.length > 0) line1Parts.push(penTestParts.join(" "));
+  if (penTestParts.length > 0) parts.push(penTestParts.join(" "));
 
-  if (showRepo && item.repository) line1Parts.push(ansis.dim(sanitizeText(item.repository)));
+  if (showRepo && item.repository) parts.push(ansis.dim(sanitizeText(item.repository)));
 
   const idLabel = ansis.hex("#555555")(item.id);
-  console.log(line1Parts.join(pipe) + `  ${idLabel}`);
+  return parts.join(pipe) + `  ${idLabel}`;
+}
 
-  // Line 2: Title
-  console.log(sanitizeText(item.title));
-  if (item.affectedTargets) console.log(ansis.dim(sanitizeText(item.affectedTargets)));
-  console.log();
-
-  // Line 3: Status DueAt | CVE/CWE | AffectedVersion → FixedVersion | Application | AffectedTargets
-  const line3Parts: string[] = [
+// Line 3: Status DueAt | CVE/CWE | AffectedVersion → FixedVersion | Application
+function buildFindingStatusLine(item: SrmItem, hasChains: boolean): string {
+  const pipe = ` ${ansis.dim("|")} `;
+  const parts: string[] = [
     `${colorStatus(item.status)} ${ansis.dim(formatDueDate(item.dueAt))}`,
   ];
 
-  if (item.cve) line3Parts.push(ansis.dim(item.cve));
-  else if (item.cwe) line3Parts.push(ansis.dim(`CWE-${item.cwe}`));
+  if (item.cve) parts.push(ansis.dim(item.cve));
+  else if (item.cwe) parts.push(ansis.dim(`CWE-${item.cwe}`));
 
   // When dependency chains are present they carry the vulnerable package and
   // fixed version on their own line, so the redundant version segment is dropped.
-  const hasChains = !!item.dependencyChains?.length;
   if (!hasChains) {
     const versionSegment = formatVersionSegment(
       item.affectedVersion,
       item.fixedVersion,
       { includeUpdatePrefix: true },
     );
-    if (versionSegment) line3Parts.push(ansis.dim(versionSegment));
+    if (versionSegment) parts.push(ansis.dim(versionSegment));
   }
 
-  if (item.application) line3Parts.push(ansis.dim(sanitizeText(item.application)));
+  if (item.application) parts.push(ansis.dim(sanitizeText(item.application)));
 
-  console.log(line3Parts.join(pipe));
+  return parts.join(pipe);
+}
+
+function printFindingCard(item: SrmItem, showRepo: boolean): void {
+  const separator = ansis.dim("─".repeat(40));
+
+  console.log();
+  console.log(buildFindingHeaderLine(item, showRepo));
+
+  // Line 2: Title
+  console.log(sanitizeText(item.title));
+  if (item.affectedTargets) console.log(ansis.dim(sanitizeText(item.affectedTargets)));
+  console.log();
+
+  const hasChains = !!item.dependencyChains?.length;
+  console.log(buildFindingStatusLine(item, hasChains));
 
   // Line 4: dependency import chain (SCA findings with dependencyChains)
   if (hasChains) {
@@ -139,6 +148,13 @@ function printFindingCard(item: SrmItem, showRepo: boolean): void {
       item.fixedVersion,
     );
     if (chainLine) console.log(ansis.dim(chainLine));
+  }
+
+  // Vulnerable functions (findings with an OSV-linked advisory), compact form
+  if (item.advisoryInformation?.vulnerableFunctions?.length) {
+    console.log(
+      ansis.dim(`Vulnerable functions: ${summarizeFunctions(item.advisoryInformation.vulnerableFunctions)}`),
+    );
   }
 
   console.log();
@@ -326,6 +342,9 @@ Examples:
               "application",
               "affectedTargets",
               "dependencyChains",
+              "advisoryInformation.advisoryId",
+              "advisoryInformation.vulnerableFunctions",
+              "advisoryInformation.publishedAt",
             ])),
             total,
           });

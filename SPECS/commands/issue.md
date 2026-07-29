@@ -1,6 +1,6 @@
 # `issue` Command Spec
 
-**Status:** ✅ Done (2026-02-23); ignore/unignore added 2026-03-02
+**Status:** ✅ Done (2026-02-23); ignore/unignore added 2026-03-02; vulnerable functions block added 2026-07-24
 
 ## Purpose
 
@@ -66,6 +66,23 @@ Detected by: {tool name}
 {pattern title} ({pattern id})
 ```
 
+**Vulnerable Functions block** — shown between the false-positive warning and the pattern
+docs whenever `issue.advisoryInformation` is present (SCA issues linked to an OSV advisory):
+
+```
+Vulnerable Functions ({advisoryId})
+Published: {publishedAt, formatted YYYY-MM-DD}
+
+  • {vulnerableFunctions[0]}
+  • {vulnerableFunctions[1]}
+  ...
+```
+
+Rendered via `printAdvisoryBlock` in `utils/formatting.ts`, called from `printIssueCodeContext`
+(so it's also shared with the `pull-request --issue` detail view). No conditional on issue
+category — gated purely on `advisoryInformation` being present, mirroring how the CVE block
+is gated on `cve` for `finding`.
+
 ## Tests
 
-File: `src/commands/issue.test.ts` — 8 tests.
+File: `src/commands/issue.test.ts` — 20 tests (17 + 3 for the vulnerable functions block).

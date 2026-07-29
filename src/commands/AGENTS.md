@@ -213,6 +213,10 @@ Dependency-chain helpers shared between `findings.ts` (list) and `finding.ts` (d
 - `formatDependencyChainsLine(chains, fixedVersion)` — one-line list summary: first chain with its Direct/Transitive label + `... and N more`; returns `null` for no chains
 - `formatDependencyChainsBlock(chains, fixedVersion)` — multi-line detail block: all chains, label shown once, continuation lines aligned under the label; returns `null` for no chains
 
+Advisory-information helpers shared between `issue.ts`/`pull-request.ts` (via `CommitIssue.advisoryInformation`) and `finding.ts`/`findings.ts` (via `SrmItem.advisoryInformation`) — same `AdvisoryInformation` shape from either source:
+- `summarizeFunctions(fns, limit = 3)` — compact `fn1, fn2 (+N more)` string for card views (`issue`/`pull-request` cards, `findings` list)
+- `printAdvisoryBlock(advisory)` — full detail block: bold `Vulnerable Functions (<advisoryId>)` header, optional `Published:` date, one bullet per function; used by `printIssueCodeContext` (issue detail views) and directly by `finding.ts` when there's no linked Codacy issue to render it via that path
+
 Pattern helpers shared between `patterns.ts` (list) and `pattern.ts` (single info):
 - `printPatternCard(cp)` — the configured-pattern card (icons, enforced-by line, metadata, why/how, parameters)
 - `PATTERN_JSON_FIELDS` — `pickDeep` paths for the JSON projection of a `ConfiguredPattern`
@@ -312,6 +316,7 @@ Keeps the two command handlers thin: they only supply the API-specific callbacks
   - `-m, --ignore-comment`: optional free-text comment
 - **`--unignore` mode** (`-U`): calls `SecurityService.unignoreSecurityItem`; skips rendering finding details
 - **Dependency import chains** (SCA findings): when `item.dependencyChains` (`string[][]`) is present, both `finding` (detail) and `findings` (list) render the vulnerable dependency's import path. A chain with a single package is a **direct** dependency (`Direct - Update <pkg> to <fixedVersion>`); 2+ packages is **transitive** (`Transitive - <chain> (Fixed in <fixedVersion>)`). Chains with **4+ packages** collapse the middle to `<first> → ... N more ... → <last>` (N = length − 2). The list shows only the first chain + `... and X more`; the detail lists **all** chains with the Direct/Transitive label shown once and continuation lines indented so the `-` aligns. When chains are present, the redundant `AffectedVersion → FixedVersion` segment is dropped from the status line. Mixed direct/transitive chains (rare) take their label from the first chain. Rendering lives in `formatDependencyChainsLine` / `formatDependencyChainsBlock` (see Shared Formatting Utilities).
+- **Vulnerable functions** (`item.advisoryInformation`, both `finding` and `findings`): `findings` (list) shows the compact `Vulnerable functions: fn1, fn2 (+N more)` line via `summarizeFunctions` (same helper `issue`/`pull-request`'s card view uses). `finding` (detail) shows the full `printAdvisoryBlock` — but **only when there is no linked Codacy issue**; when there is one, `printIssueCodeContext` already renders the equivalent block from `issue.advisoryInformation`, so `finding` skips its own to avoid a duplicate. This is what makes vulnerable functions visible for SCA/dependency findings (and any other non-Codacy-source finding), which have no linked issue to borrow the block from at all.
 
 ## pull-request command (`pull-request.ts`)
 
