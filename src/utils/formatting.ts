@@ -264,7 +264,7 @@ export function printIssueCard(
   }
 
   // Vulnerable functions (SCA issues with an OSV-linked advisory), compact form
-  if (issue.advisoryInformation) {
+  if (issue.advisoryInformation?.vulnerableFunctions?.length) {
     console.log();
     console.log(ansis.dim(`Vulnerable functions: ${summarizeFunctions(issue.advisoryInformation.vulnerableFunctions)}`));
   }
@@ -278,7 +278,7 @@ export function printIssueCard(
  * capping at 3 entries with a "+N more" suffix for longer lists.
  */
 export function summarizeFunctions(fns: string[], limit = 3): string {
-  const shown = fns.slice(0, limit).join(", ");
+  const shown = fns.slice(0, limit).map(sanitizeText).join(", ");
   const more = fns.length > limit ? ` (+${fns.length - limit} more)` : "";
   return `${shown}${more}`;
 }
@@ -634,13 +634,15 @@ export function printCveBlock(cve: CveRecord): void {
  */
 export function printAdvisoryBlock(advisory: AdvisoryInformation): void {
   console.log();
-  console.log(ansis.bold(`Vulnerable Functions (${advisory.advisoryId})`));
+  console.log(ansis.bold(`Vulnerable Functions (${sanitizeText(advisory.advisoryId)})`));
   if (advisory.publishedAt) {
     console.log(ansis.dim(`Published: ${formatDueDate(advisory.publishedAt)}`));
   }
-  console.log();
-  for (const fn of advisory.vulnerableFunctions) {
-    console.log(`  • ${fn}`);
+  if (advisory.vulnerableFunctions.length > 0) {
+    console.log();
+    for (const fn of advisory.vulnerableFunctions) {
+      console.log(`  • ${sanitizeText(fn)}`);
+    }
   }
 }
 

@@ -651,6 +651,30 @@ describe("finding command", () => {
         expect.stringContaining('"lodash.merge"'),
       );
     });
+
+    it("should suppress its own advisory block for a Codacy-source finding with a linked issue, deferring to the issue's block", async () => {
+      vi.mocked(SecurityService.getSecurityItem).mockResolvedValue({
+        data: { ...mockCodacyFinding, advisoryInformation: mockAdvisoryInformation },
+      } as any);
+      vi.mocked(AnalysisService.getIssue).mockResolvedValue({
+        data: { ...mockQualityIssue, advisoryInformation: mockAdvisoryInformation },
+      } as any);
+      vi.mocked(ToolsService.getPattern).mockResolvedValue({
+        data: mockPattern,
+      } as any);
+      vi.mocked(FileService.getFileContent).mockResolvedValue({
+        data: mockFileLines,
+      } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "finding", "gh", "test-org", "def-456-codacy",
+      ]);
+
+      const output = getAllOutput();
+      // Rendered once via printIssueCodeContext (the linked issue's block), not duplicated by finding.ts's own printAdvisoryBlock call
+      expect(output.match(/Vulnerable Functions \(CVE-2021-23337\)/g)).toHaveLength(1);
+    });
   });
 
   describe("--ignore option", () => {
