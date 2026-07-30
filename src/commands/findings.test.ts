@@ -569,6 +569,28 @@ describe("findings command", () => {
     expect(output).toContain("Showing the first 100 results");
   });
 
+  it("should warn about pagination when a cursor remains even though the API omitted total", async () => {
+    vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
+      data: mockFindings,
+      pagination: { cursor: "next-cursor", limit: 1 },
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node",
+      "test",
+      "findings",
+      "gh",
+      "test-org",
+      "test-repo",
+      "--limit",
+      "1",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("Showing the first 1 results");
+  });
+
   it("should output JSON when --output json is specified", async () => {
     vi.mocked(SecurityService.searchSecurityItems).mockResolvedValue({
       data: mockFindings,

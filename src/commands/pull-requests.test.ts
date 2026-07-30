@@ -68,7 +68,7 @@ describe("pull-requests command", () => {
     process.env.CODACY_API_TOKEN = "test-token";
   });
 
-  it("should fetch and display pull requests for a repository", async () => {
+  it("should fetch and display pull requests for a repository, defaulting to open state", async () => {
     vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
       data: [mockPr(), mockPr({ pullRequest: { ...mockPr().pullRequest, number: 43, title: "Fix bug" } })],
     } as any);
@@ -79,16 +79,17 @@ describe("pull-requests command", () => {
     ]);
 
     expect(AnalysisService.listRepositoryPullRequests).toHaveBeenCalledWith(
-      "gh", "test-org", "test-repo", 100, undefined, undefined, undefined, undefined,
+      "gh", "test-org", "test-repo", 100, undefined, "last-updated", undefined, undefined,
     );
 
     const output = getAllOutput();
     expect(output).toContain("Add new feature");
     expect(output).toContain("Fix bug");
     expect(output).toContain("Pull Requests — Found 2 pull requests");
+    expect(output).toContain("feature/new → main");
   });
 
-  it("should map --search-text to the textQuery API param", async () => {
+  it("should map --search to the textQuery API param", async () => {
     vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
       data: [mockPr()],
     } as any);
@@ -96,15 +97,15 @@ describe("pull-requests command", () => {
     const program = createProgram();
     await program.parseAsync([
       "node", "test", "pull-requests", "gh", "test-org", "test-repo",
-      "--search-text", "flaky test",
+      "--search", "flaky test",
     ]);
 
     expect(AnalysisService.listRepositoryPullRequests).toHaveBeenCalledWith(
-      "gh", "test-org", "test-repo", 100, undefined, undefined, "flaky test", undefined,
+      "gh", "test-org", "test-repo", 100, undefined, "last-updated", "flaky test", undefined,
     );
   });
 
-  it("should map --branch to the targetBranch API param", async () => {
+  it("should map --base to the targetBranch API param", async () => {
     vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
       data: [mockPr()],
     } as any);
@@ -112,15 +113,15 @@ describe("pull-requests command", () => {
     const program = createProgram();
     await program.parseAsync([
       "node", "test", "pull-requests", "gh", "test-org", "test-repo",
-      "--branch", "release/1.0",
+      "--base", "release/1.0",
     ]);
 
     expect(AnalysisService.listRepositoryPullRequests).toHaveBeenCalledWith(
-      "gh", "test-org", "test-repo", 100, undefined, undefined, undefined, "release/1.0",
+      "gh", "test-org", "test-repo", 100, undefined, "last-updated", undefined, "release/1.0",
     );
   });
 
-  it("should combine --search-text and --branch", async () => {
+  it("should combine --search and --base", async () => {
     vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
       data: [mockPr()],
     } as any);
@@ -128,11 +129,27 @@ describe("pull-requests command", () => {
     const program = createProgram();
     await program.parseAsync([
       "node", "test", "pull-requests", "gh", "test-org", "test-repo",
-      "--search-text", "flaky test", "--branch", "release/1.0",
+      "--search", "flaky test", "--base", "release/1.0",
     ]);
 
     expect(AnalysisService.listRepositoryPullRequests).toHaveBeenCalledWith(
-      "gh", "test-org", "test-repo", 100, undefined, undefined, "flaky test", "release/1.0",
+      "gh", "test-org", "test-repo", 100, undefined, "last-updated", "flaky test", "release/1.0",
+    );
+  });
+
+  it("should map --state closed to the API's merged search classification", async () => {
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [mockPr()],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "pull-requests", "gh", "test-org", "test-repo",
+      "--state", "closed",
+    ]);
+
+    expect(AnalysisService.listRepositoryPullRequests).toHaveBeenCalledWith(
+      "gh", "test-org", "test-repo", 100, undefined, "merged", undefined, undefined,
     );
   });
 
@@ -148,6 +165,21 @@ describe("pull-requests command", () => {
 
     const output = getAllOutput();
     expect(output).toContain("No pull requests found.");
+  });
+
+  it("should show a dim in-progress marker instead of ✓/✗ while a PR is still analysing", async () => {
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [mockPr({ isAnalysing: true, isUpToStandards: undefined })],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "pull-requests", "gh", "test-org", "test-repo",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("⋯");
+    expect(output).not.toContain("✗");
   });
 
   it("should paginate up to --limit, following the cursor", async () => {
@@ -169,7 +201,7 @@ describe("pull-requests command", () => {
 
     expect(AnalysisService.listRepositoryPullRequests).toHaveBeenCalledTimes(2);
     expect(AnalysisService.listRepositoryPullRequests).toHaveBeenNthCalledWith(
-      2, "gh", "test-org", "test-repo", 2, "page2", undefined, undefined, undefined,
+      2, "gh", "test-org", "test-repo", 2, "page2", "last-updated", undefined, undefined,
     );
   });
 
@@ -182,6 +214,22 @@ describe("pull-requests command", () => {
     const program = createProgram();
     await program.parseAsync([
       "node", "test", "pull-requests", "gh", "test-org", "test-repo",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("--limit");
+  });
+
+  it("should warn about pagination when a cursor remains even though the API omitted total", async () => {
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [mockPr()],
+      pagination: { cursor: "next" },
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "pull-requests", "gh", "test-org", "test-repo",
+      "--limit", "1",
     ]);
 
     const output = getAllOutput();
@@ -204,6 +252,15 @@ describe("pull-requests command", () => {
     );
     expect(console.log).toHaveBeenCalledWith(
       expect.stringContaining('"targetBranch": "main"'),
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('"originBranch": "feature/new"'),
+    );
+    expect(console.log).not.toHaveBeenCalledWith(
+      expect.stringContaining('"owner"'),
+    );
+    expect(console.log).not.toHaveBeenCalledWith(
+      expect.stringContaining('"status"'),
     );
   });
 
@@ -234,7 +291,7 @@ describe("pull-requests command", () => {
       await program.parseAsync(["node", "test", "pull-requests"]);
 
       expect(AnalysisService.listRepositoryPullRequests).toHaveBeenCalledWith(
-        "gh", "auto-org", "auto-repo", 100, undefined, undefined, undefined, undefined,
+        "gh", "auto-org", "auto-repo", 100, undefined, "last-updated", undefined, undefined,
       );
     });
   });

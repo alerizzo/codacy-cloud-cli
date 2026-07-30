@@ -508,6 +508,7 @@ export function buildGateStatus(pr: PullRequestWithAnalysis): GateStatusMap {
  * Red ✗ if either is false, green ✓ if all available are true, dim - if no data.
  */
 export function formatStandards(pr: PullRequestWithAnalysis): string {
+  if (pr.isAnalysing) return ansis.dim("⋯");
   const covUp = pr.coverage?.isUpToStandards;
   const qualUp = pr.quality?.isUpToStandards;
   if (covUp === undefined && qualUp === undefined) return ansis.dim("-");

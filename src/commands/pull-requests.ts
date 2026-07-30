@@ -30,7 +30,7 @@ function printPullRequestsList(pullRequests: PullRequestWithAnalysis[]): void {
     head: [
       "#",
       "Title",
-      "Branch",
+      "Branches",
       ansis.dim("✓"),
       "Issues",
       "Coverage",
@@ -41,10 +41,12 @@ function printPullRequestsList(pullRequests: PullRequestWithAnalysis[]): void {
   });
   for (const pr of pullRequests) {
     const gates = buildGateStatus(pr);
+    const origin = sanitizeText(pr.pullRequest.originBranch) || "N/A";
+    const target = sanitizeText(pr.pullRequest.targetBranch) || "N/A";
     table.push([
       String(pr.pullRequest.number),
       truncate(sanitizeText(pr.pullRequest.title), 40),
-      truncate(sanitizeText(pr.pullRequest.targetBranch) || "N/A", 20),
+      truncate(`${origin} → ${target}`, 30),
       formatStandards(pr),
       formatPrIssues(pr, gates.issues),
       formatPrCoverage(pr, gates.coverage),
@@ -54,6 +56,72 @@ function printPullRequestsList(pullRequests: PullRequestWithAnalysis[]): void {
     ]);
   }
   console.log(table.toString());
+}
+
+async function fetchPullRequests(
+  provider: string,
+  organization: string,
+  repository: string,
+  limit: number,
+  search: string,
+  textQuery?: string,
+  targetBranch?: string,
+): Promise<{ items: PullRequestWithAnalysis[]; total: number; hasMore: boolean }> {
+  const pageSize = Math.min(limit, 100);
+  let items: PullRequestWithAnalysis[] = [];
+  let cursor: string | undefined;
+  let total: number | undefined;
+
+  do {
+    const response = await AnalysisService.listRepositoryPullRequests(
+      provider,
+      organization,
+      repository,
+      pageSize,
+      cursor,
+      search,
+      textQuery,
+      targetBranch,
+    );
+    items = items.concat(response.data);
+    total ??= response.pagination?.total;
+    cursor = response.pagination?.cursor;
+  } while (cursor && items.length < limit);
+
+  // A cursor can still be set even once `total` (when the API omits it and we
+  // fall back to `items.length`) makes the naive `total > items.length` check
+  // false — that's how a trailing page silently went unreported before.
+  const hasMore = Boolean(cursor);
+  if (items.length > limit) items = items.slice(0, limit);
+  total ??= items.length;
+
+  return { items, total, hasMore };
+}
+
+function printPullRequestsJson(
+  items: PullRequestWithAnalysis[],
+  total: number,
+): void {
+  printJson({
+    pullRequests: items.map((pr: any) => pickDeep(pr, [
+      "isUpToStandards",
+      "isAnalysing",
+      "pullRequest.number",
+      "pullRequest.title",
+      "pullRequest.originBranch",
+      "pullRequest.targetBranch",
+      "pullRequest.updated",
+      "newIssues",
+      "fixedIssues",
+      "deltaComplexity",
+      "deltaClonesCount",
+      "coverage.deltaCoverage",
+      "coverage.diffCoverage",
+      "coverage.isUpToStandards",
+      "quality.isUpToStandards",
+    ])),
+    total,
+  });
 }
 
 export function registerPullRequestsCommand(program: Command) {
@@ -68,10 +136,15 @@ export function registerPullRequestsCommand(program: Command) {
     .argument("[organization]", "organization name")
     .argument("[repository]", "repository name")
     .option(
-      "-q, --search-text <text>",
+      "-q, --search <text>",
       "filter by free-text search matched against the PR title or author handle",
     )
-    .option("-b, --branch <name>", "filter by target branch name")
+    .option("-B, --base <name>", "filter by target (base) branch name")
+    .option(
+      "-S, --state <state>",
+      "filter by PR state (open|closed)",
+      "open",
+    )
     .option(
       "-n, --limit <n>",
       "maximum number of pull requests to return (default: 100, max: 1000)",
@@ -83,8 +156,9 @@ export function registerPullRequestsCommand(program: Command) {
 Examples:
   $ codacy pull-requests                                    # auto-detect from git remote
   $ codacy pull-requests gh my-org my-repo
-  $ codacy pull-requests gh my-org my-repo --search-text "fix flaky"
-  $ codacy pull-requests gh my-org my-repo --branch main
+  $ codacy pull-requests gh my-org my-repo --search "fix flaky"
+  $ codacy pull-requests gh my-org my-repo --base main
+  $ codacy pull-requests gh my-org my-repo --state closed
   $ codacy pull-requests gh my-org my-repo --output json`,
     )
     .action(async function (
@@ -106,56 +180,25 @@ Examples:
         const format = getOutputFormat(this);
         const opts = this.opts();
         const limit = Math.min(Math.max(parseInt(opts.limit, 10) || 100, 1), 1000);
+        // API classification param: "closed" here maps to the API's "merged" search
+        // value, which also includes closed-but-not-merged PRs — "merged" would be
+        // a misleading name to expose on the CLI for that reason.
+        const search = opts.state === "closed" ? "merged" : "last-updated";
 
         const spinner = ora("Fetching pull requests...").start();
-
-        const pageSize = Math.min(limit, 100);
-        let items: PullRequestWithAnalysis[] = [];
-        let cursor: string | undefined;
-        let total: number | undefined;
-
-        do {
-          const response = await AnalysisService.listRepositoryPullRequests(
-            provider,
-            organization,
-            repository,
-            pageSize,
-            cursor,
-            undefined, // search (merged/last-updated classification) — not exposed by this command
-            opts.searchText,
-            opts.branch,
-          );
-          items = items.concat(response.data);
-          total ??= response.pagination?.total;
-          cursor = response.pagination?.cursor;
-        } while (cursor && items.length < limit);
-
-        // Trim to exact limit
-        if (items.length > limit) items = items.slice(0, limit);
-        total ??= items.length;
+        const { items, total, hasMore } = await fetchPullRequests(
+          provider,
+          organization,
+          repository,
+          limit,
+          search,
+          opts.search,
+          opts.base,
+        );
         spinner.stop();
 
         if (format === "json") {
-          printJson({
-            pullRequests: items.map((pr: any) => pickDeep(pr, [
-              "isUpToStandards",
-              "isAnalysing",
-              "pullRequest.number",
-              "pullRequest.title",
-              "pullRequest.status",
-              "pullRequest.originBranch",
-              "pullRequest.targetBranch",
-              "pullRequest.updated",
-              "pullRequest.owner.name",
-              "newIssues",
-              "fixedIssues",
-              "deltaComplexity",
-              "deltaClonesCount",
-              "coverage.deltaCoverage",
-              "coverage.diffCoverage",
-            ])),
-            total,
-          });
+          printPullRequestsJson(items, total);
           return;
         }
 
@@ -167,10 +210,10 @@ Examples:
 
         printPullRequestsList(items);
 
-        if (total > items.length) {
+        if (total > items.length || hasMore) {
           printPaginationWarning(
             { cursor: "more", limit: items.length },
-            "Use --limit <n> (max 1000) to fetch more, or --search-text, --branch to filter.",
+            "Use --limit <n> (max 1000) to fetch more, or --search, --base, --state to filter.",
           );
         }
       } catch (err) {
