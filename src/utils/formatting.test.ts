@@ -283,6 +283,15 @@ describe("formatPrIssues", () => {
     ).toBe("+3 / -1");
   });
 
+  it("renders zero without a sign", () => {
+    expect(formatPrIssues({ newIssues: 0, fixedIssues: 0 } as any)).toBe(
+      "0 / 0",
+    );
+    expect(formatPrIssues({ newIssues: 2, fixedIssues: 0 } as any)).toBe(
+      "+2 / 0",
+    );
+  });
+
   it("renders dashes when the counts are absent", () => {
     expect(formatPrIssues({} as any)).toBe("- / -");
   });

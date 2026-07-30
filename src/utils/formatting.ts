@@ -569,6 +569,16 @@ export function prQualityMetric(
 }
 
 /**
+ * Format an issue count for the `+new / -fixed` pair: dim `-` when absent,
+ * a bare `0` (no sign — nothing was added or fixed), else the signed count.
+ */
+function formatIssueCount(value: number | undefined, sign: "+" | "-"): string {
+  if (value === undefined) return "-";
+  if (value === 0) return "0";
+  return `${sign}${value}`;
+}
+
+/**
  * Format PR issues: +newIssues / -fixedIssues.
  * New issues colored by gate status (red if failing), fixed issues always gray.
  */
@@ -576,10 +586,8 @@ export function formatPrIssues(
   pr: PullRequestWithAnalysis,
   passing?: boolean,
 ): string {
-  const newIssues = prQualityMetric(pr, "newIssues");
-  const fixedIssues = prQualityMetric(pr, "fixedIssues");
-  const newI = newIssues !== undefined ? `+${newIssues}` : "-";
-  const fixI = fixedIssues !== undefined ? `-${fixedIssues}` : "-";
+  const newI = formatIssueCount(prQualityMetric(pr, "newIssues"), "+");
+  const fixI = formatIssueCount(prQualityMetric(pr, "fixedIssues"), "-");
   const newColored = colorByGate(newI, passing);
   return `${newColored} / ${ansis.dim(fixI)}`;
 }

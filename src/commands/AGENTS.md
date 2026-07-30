@@ -205,7 +205,7 @@ Several helpers are shared between `repository.ts` and `pull-request.ts` via `ut
 - `buildGateStatus(pr)` — maps `resultReasons` gate names to metric columns
 - `formatStandards(pr)` — dim `⋯` while `pr.isAnalysing`, else ✓/✗/- from quality + coverage `isUpToStandards`
 - `formatPrCoverage(pr, passing)` — diffCoverage% (+/-deltaCoverage%)
-- `formatPrIssues(pr, passing)` — +newIssues (colored by gate) / -fixedIssues (always gray)
+- `formatPrIssues(pr, passing)` — +newIssues (colored by gate) / -fixedIssues (always gray). A zero count renders as a bare `0`, no sign — `-0` reads as a negative number, and neither `+0` nor `-0` says anything a plain `0` doesn't (same rule `pull-request.ts`'s Files table and `formatFileDelta` already follow)
 - `prQualityMetric(pr, key)` — reads `newIssues`/`fixedIssues`/`deltaComplexity`/`deltaClonesCount`, **preferring `pr.quality[key]` over the flat top-level `pr[key]`**. The API populates the two inconsistently: the pull-request endpoints return `quality.deltaComplexity` but omit the top-level `deltaComplexity` (while still sending a top-level `deltaClonesCount`), so reading the flat field alone made every PR's complexity render as "no data". `quality` is the newer structured shape — same direction as `coverage` vs. the deprecated top-level coverage fields — so it wins, flat field as fallback. Use this instead of `pr.deltaComplexity` / `pr.deltaClonesCount` in any new PR rendering
 - `hasAnyPrCoverage(prs)` — true when at least one PR in the list carries a coverage number. Callers listing many PRs use it to drop the Coverage column when the repo has no coverage set up (the API returns `diffCoverage.cause` and no values). Lives next to `formatPrCoverage` so both agree on what counts as "has data"
 
