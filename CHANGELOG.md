@@ -1,5 +1,25 @@
 # @codacy/codacy-cloud-cli
 
+## 1.7.0
+
+### Minor Changes
+
+- [#34](https://github.com/codacy/codacy-cloud-cli/pull/34) [`c26ff79`](https://github.com/codacy/codacy-cloud-cli/commit/c26ff795df60e9cc8b54a7ab782fa80bffb12e62) Thanks [@pedrobpereira](https://github.com/pedrobpereira)! - `issue`, `issues`, `pull-request --issue`, `finding`, and `findings` now show vulnerable/affected functions for SCA issues and findings with a linked OSV advisory (`CommitIssue.advisoryInformation` / `SrmItem.advisoryInformation`). Card views show a compact one-line summary; detail views show the full list with advisory ID and published date. Included in `--output json` for all five commands.
+
+### Patch Changes
+
+- [#30](https://github.com/codacy/codacy-cloud-cli/pull/30) [`12c1a33`](https://github.com/codacy/codacy-cloud-cli/commit/12c1a332f41163298344e794bf6ce2dee4a95366) Thanks [@alerizzo](https://github.com/alerizzo)! - Neutralize terminal control characters in human-readable output (CWE-150).
+  Repository-derived values shown by the CLI — PR and finding titles, author
+  names, branches, file paths, diff and file content, issue messages, and package
+  names — are now stripped of ANSI/OSC escape and other control bytes before being
+  printed, so a crafted pull request can no longer repaint or hide findings, spoof
+  gate status, or trigger terminal side effects (e.g. clipboard writes) when you
+  run the CLI against it. Offending bytes are shown in visible caret notation
+  (e.g. `^[`) instead of being interpreted. `--output json` is unaffected — it
+  still returns the original values, escaped by JSON encoding.
+
+- [#34](https://github.com/codacy/codacy-cloud-cli/pull/34) [`c26ff79`](https://github.com/codacy/codacy-cloud-cli/commit/c26ff795df60e9cc8b54a7ab782fa80bffb12e62) Thanks [@pedrobpereira](https://github.com/pedrobpereira)! - Sanitize vulnerable/affected function names and the advisory ID (`CommitIssue.advisoryInformation` / `SrmItem.advisoryInformation`) before printing them in `issue`, `issues`, `pull-request --issue`, `finding`, and `findings`. These values come from the linked OSV advisory, so — like other repository-derived output — they are now passed through `sanitizeText()` to strip ANSI/OSC control bytes (CWE-150) instead of being printed raw.
+
 ## 1.6.0
 
 ### Minor Changes
