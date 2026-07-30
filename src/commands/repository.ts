@@ -24,6 +24,7 @@ import {
   formatPrCoverage,
   formatPrIssues,
   formatAnalysisStatus,
+  prQualityMetric,
 } from "../utils/formatting";
 import { sanitizeText } from "../utils/sanitize";
 import {
@@ -180,8 +181,8 @@ function printPullRequests(pullRequests: PullRequestWithAnalysis[]): void {
       formatStandards(pr),
       formatPrIssues(pr, gates.issues),
       formatPrCoverage(pr, gates.coverage),
-      formatDelta(pr.deltaComplexity, gates.complexity),
-      formatDelta(pr.deltaClonesCount, gates.duplication),
+      formatDelta(prQualityMetric(pr, "deltaComplexity"), gates.complexity),
+      formatDelta(prQualityMetric(pr, "deltaClonesCount"), gates.duplication),
       formatFriendlyDate(pr.pullRequest.updated),
     ]);
   }

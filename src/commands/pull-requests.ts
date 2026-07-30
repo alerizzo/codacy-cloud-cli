@@ -20,38 +20,44 @@ import {
   formatDelta,
   formatPrCoverage,
   formatPrIssues,
+  hasAnyPrCoverage,
+  prQualityMetric,
 } from "../utils/formatting";
 import { sanitizeText } from "../utils/sanitize";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { PullRequestWithAnalysis } from "../api/client/models/PullRequestWithAnalysis";
 
 function printPullRequestsList(pullRequests: PullRequestWithAnalysis[]): void {
+  // A repo with no coverage set up returns no coverage numbers on any PR —
+  // drop the column instead of rendering it entirely empty.
+  const showCoverage = hasAnyPrCoverage(pullRequests);
   const table = createTable({
     head: [
+      ansis.dim("✓"),
       "#",
       "Title",
       "Branches",
-      ansis.dim("✓"),
+      // Metric order matches the `repositories` command.
       "Issues",
-      "Coverage",
       "Complexity",
       "Duplication",
+      ...(showCoverage ? ["Coverage"] : []),
       "Updated",
     ],
   });
   for (const pr of pullRequests) {
     const gates = buildGateStatus(pr);
-    const origin = sanitizeText(pr.pullRequest.originBranch) || "N/A";
-    const target = sanitizeText(pr.pullRequest.targetBranch) || "N/A";
+    const origin = sanitizeText(pr.pullRequest.originBranch) || "-";
+    const target = sanitizeText(pr.pullRequest.targetBranch) || "-";
     table.push([
+      formatStandards(pr),
       String(pr.pullRequest.number),
       truncate(sanitizeText(pr.pullRequest.title), 40),
       truncate(`${origin} → ${target}`, 30),
-      formatStandards(pr),
       formatPrIssues(pr, gates.issues),
-      formatPrCoverage(pr, gates.coverage),
-      formatDelta(pr.deltaComplexity, gates.complexity),
-      formatDelta(pr.deltaClonesCount, gates.duplication),
+      formatDelta(prQualityMetric(pr, "deltaComplexity"), gates.complexity),
+      formatDelta(prQualityMetric(pr, "deltaClonesCount"), gates.duplication),
+      ...(showCoverage ? [formatPrCoverage(pr, gates.coverage)] : []),
       formatFriendlyDate(pr.pullRequest.updated),
     ]);
   }
@@ -118,7 +124,18 @@ function printPullRequestsJson(
       "coverage.deltaCoverage",
       "coverage.diffCoverage",
       "coverage.isUpToStandards",
+      // `quality.*` mirrors of the flat metric fields: the API omits some of
+      // the top-level ones (notably `deltaComplexity`), and these are what the
+      // table actually renders.
+      "quality.newIssues",
+      "quality.fixedIssues",
+      "quality.deltaComplexity",
+      "quality.deltaClonesCount",
       "quality.isUpToStandards",
+      // resultReasons drive the per-metric gate coloring in the table output —
+      // include them so JSON consumers can tell which gates passed or failed.
+      "quality.resultReasons",
+      "coverage.resultReasons",
     ])),
     total,
   });

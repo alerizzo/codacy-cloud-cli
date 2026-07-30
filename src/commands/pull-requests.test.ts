@@ -182,6 +182,115 @@ describe("pull-requests command", () => {
     expect(output).not.toContain("✗");
   });
 
+  it("should render the up-to-standards column first, then metrics in repositories order", async () => {
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [mockPr()],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "pull-requests", "gh", "test-org", "test-repo",
+    ]);
+
+    const header = getAllOutput()
+      .split("\n")
+      .find((line) => line.includes("Issues"))!;
+    const order = ["✓", "#", "Title", "Branches", "Issues", "Complexity", "Duplication", "Coverage", "Updated"];
+    const positions = order.map((h) => header.indexOf(h));
+    expect(positions.every((p) => p >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  });
+
+  it("should read complexity from the nested quality object when the flat field is absent", async () => {
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [
+        mockPr({
+          deltaComplexity: undefined,
+          deltaClonesCount: undefined,
+          quality: {
+            deltaComplexity: 21,
+            deltaClonesCount: 2,
+            isUpToStandards: true,
+            resultReasons: [],
+          },
+        }),
+      ],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "pull-requests", "gh", "test-org", "test-repo",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("+21");
+    expect(output).toContain("+2");
+  });
+
+  it("should render a dash instead of N/A for metrics with no value", async () => {
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [
+        mockPr({
+          newIssues: undefined,
+          fixedIssues: undefined,
+          deltaComplexity: undefined,
+          deltaClonesCount: undefined,
+          quality: { isUpToStandards: true, resultReasons: [] },
+        }),
+      ],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "pull-requests", "gh", "test-org", "test-repo",
+    ]);
+
+    // Strip the dim/reset codes ansis wraps each empty cell in.
+    const output = getAllOutput().replace(/\[[0-9;]*m/g, "");
+    expect(output).not.toContain("N/A");
+    expect(output).toContain("- / -");
+  });
+
+  it("should hide the Coverage column when no pull request has coverage data", async () => {
+    const noCoverage = {
+      diffCoverage: { cause: "MissingRequirements" },
+      isUpToStandards: true,
+      resultReasons: [],
+    };
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [mockPr({ coverage: noCoverage }), mockPr({ coverage: noCoverage })],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "pull-requests", "gh", "test-org", "test-repo",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).not.toContain("Coverage");
+    expect(output).toContain("Duplication");
+  });
+
+  it("should keep the Coverage column when at least one pull request has coverage data", async () => {
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [
+        mockPr({
+          coverage: { diffCoverage: { cause: "MissingRequirements" } },
+        }),
+        mockPr(),
+      ],
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "pull-requests", "gh", "test-org", "test-repo",
+    ]);
+
+    const output = getAllOutput();
+    expect(output).toContain("Coverage");
+    expect(output).toContain("85.0%");
+  });
+
   it("should paginate up to --limit, following the cursor", async () => {
     vi.mocked(AnalysisService.listRepositoryPullRequests)
       .mockResolvedValueOnce({
@@ -262,6 +371,52 @@ describe("pull-requests command", () => {
     expect(console.log).not.toHaveBeenCalledWith(
       expect.stringContaining('"status"'),
     );
+  });
+
+  it("should include the gate result reasons and nested quality metrics in JSON output", async () => {
+    vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+      data: [
+        mockPr({
+          deltaComplexity: undefined,
+          quality: {
+            deltaComplexity: 21,
+            isUpToStandards: false,
+            resultReasons: [
+              {
+                gate: "issueThreshold",
+                expectedThreshold: { threshold: 1, minimumSeverity: "Warning" },
+                isUpToStandards: false,
+                expected: 1,
+              },
+            ],
+          },
+          coverage: {
+            deltaCoverage: -1.5,
+            diffCoverage: { value: 85.0, cause: "ValueIsPresent" },
+            isUpToStandards: true,
+            resultReasons: [
+              { gate: "coverageThreshold", expectedThreshold: { threshold: 50 }, isUpToStandards: true },
+            ],
+          },
+        }),
+      ],
+      pagination: { total: 1 },
+    } as any);
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "--output", "json", "pull-requests", "gh", "test-org", "test-repo",
+    ]);
+
+    const json = JSON.parse(
+      (console.log as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0] as string,
+    );
+    const pr = json.pullRequests[0];
+    expect(pr.quality.resultReasons[0].gate).toBe("issueThreshold");
+    expect(pr.quality.resultReasons[0].isUpToStandards).toBe(false);
+    expect(pr.coverage.resultReasons[0].gate).toBe("coverageThreshold");
+    // The rendered complexity comes from `quality`, so JSON must carry it too.
+    expect(pr.quality.deltaComplexity).toBe(21);
   });
 
   it("should fail when CODACY_API_TOKEN is not set", async () => {

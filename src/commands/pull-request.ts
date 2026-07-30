@@ -26,6 +26,7 @@ import {
   printIssueCard,
   printIssueDetail,
   formatAnalysisStatus,
+  prQualityMetric,
   GateStatusMap,
 } from "../utils/formatting";
 import {
@@ -105,16 +106,16 @@ function metricHasData(
   switch (gateKey) {
     case "issues":
     case "security":
-      return pr.newIssues !== undefined;
+      return prQualityMetric(pr, "newIssues") !== undefined;
     case "coverage":
       return (
         pr.coverage?.diffCoverage?.value !== undefined ||
         pr.coverage?.deltaCoverage !== undefined
       );
     case "complexity":
-      return pr.deltaComplexity !== undefined;
+      return prQualityMetric(pr, "deltaComplexity") !== undefined;
     case "duplication":
-      return pr.deltaClonesCount !== undefined;
+      return prQualityMetric(pr, "deltaClonesCount") !== undefined;
     default:
       return true;
   }
@@ -258,7 +259,7 @@ function printAnalysis(pr: PullRequestWithAnalysis): void {
   // Complexity
   table.push({
     Complexity: withHint(
-      formatDelta(pr.deltaComplexity, gates.complexity),
+      formatDelta(prQualityMetric(pr, "deltaComplexity"), gates.complexity),
       hints["complexity"],
     ),
   });
@@ -266,7 +267,7 @@ function printAnalysis(pr: PullRequestWithAnalysis): void {
   // Duplication
   table.push({
     Duplication: withHint(
-      formatDelta(pr.deltaClonesCount, gates.duplication),
+      formatDelta(prQualityMetric(pr, "deltaClonesCount"), gates.duplication),
       hints["duplication"],
     ),
   });
