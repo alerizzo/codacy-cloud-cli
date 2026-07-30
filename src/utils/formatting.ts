@@ -467,7 +467,7 @@ export function formatDelta(
   value: number | undefined,
   passing?: boolean,
 ): string {
-  if (value === undefined || value === null) return ansis.dim("N/A");
+  if (value === undefined || value === null) return ansis.dim("-");
   const sign = value > 0 ? "+" : "";
   const display = `${sign}${value}`;
   if (passing !== undefined) return colorByGate(display, passing);
@@ -508,6 +508,7 @@ export function buildGateStatus(pr: PullRequestWithAnalysis): GateStatusMap {
  * Red ✗ if either is false, green ✓ if all available are true, dim - if no data.
  */
 export function formatStandards(pr: PullRequestWithAnalysis): string {
+  if (pr.isAnalysing) return ansis.dim("⋯");
   const covUp = pr.coverage?.isUpToStandards;
   const qualUp = pr.quality?.isUpToStandards;
   if (covUp === undefined && qualUp === undefined) return ansis.dim("-");
@@ -524,13 +525,57 @@ export function formatPrCoverage(
 ): string {
   const diff = pr.coverage?.diffCoverage?.value;
   const delta = pr.coverage?.deltaCoverage;
-  if (diff === undefined && delta === undefined) return ansis.dim("N/A");
-  const diffStr = diff !== undefined ? `${diff.toFixed(1)}%` : "N/A";
+  if (diff === undefined && delta === undefined) return ansis.dim("-");
+  const diffStr = diff !== undefined ? `${diff.toFixed(1)}%` : "-";
   const deltaSign = delta !== undefined && delta > 0 ? "+" : "";
   const deltaStr =
     delta !== undefined ? `(${deltaSign}${delta.toFixed(1)}%)` : "";
   const display = deltaStr ? `${diffStr} ${deltaStr}` : diffStr;
   return colorByGate(display, passing);
+}
+
+/**
+ * True when at least one PR carries a coverage value. Repositories with no
+ * coverage set up return `diffCoverage.cause` (e.g. "MissingRequirements") and
+ * no numbers at all, so callers listing many PRs use this to drop the Coverage
+ * column entirely rather than print a full column of "-".
+ *
+ * Kept next to `formatPrCoverage` so both agree on what counts as "has data".
+ */
+export function hasAnyPrCoverage(prs: PullRequestWithAnalysis[]): boolean {
+  return prs.some(
+    (pr) =>
+      pr.coverage?.diffCoverage?.value !== undefined ||
+      pr.coverage?.deltaCoverage !== undefined,
+  );
+}
+
+/**
+ * Read a PR quality metric, preferring the nested `quality` object over the
+ * flat top-level field.
+ *
+ * The API populates the two inconsistently: the pull-request endpoints return
+ * `quality.deltaComplexity` but omit the top-level `deltaComplexity` (while
+ * still sending a top-level `deltaClonesCount`), so reading only the flat field
+ * made every PR's complexity render as "no data". `quality` is the newer,
+ * structured shape — same direction as `coverage` vs. the deprecated top-level
+ * coverage fields — so it wins, with the flat field as fallback.
+ */
+export function prQualityMetric(
+  pr: PullRequestWithAnalysis,
+  key: "newIssues" | "fixedIssues" | "deltaComplexity" | "deltaClonesCount",
+): number | undefined {
+  return pr.quality?.[key] ?? pr[key];
+}
+
+/**
+ * Format an issue count for the `+new / -fixed` pair: dim `-` when absent,
+ * a bare `0` (no sign — nothing was added or fixed), else the signed count.
+ */
+function formatIssueCount(value: number | undefined, sign: "+" | "-"): string {
+  if (value === undefined) return "-";
+  if (value === 0) return "0";
+  return `${sign}${value}`;
 }
 
 /**
@@ -541,8 +586,8 @@ export function formatPrIssues(
   pr: PullRequestWithAnalysis,
   passing?: boolean,
 ): string {
-  const newI = pr.newIssues !== undefined ? `+${pr.newIssues}` : "N/A";
-  const fixI = pr.fixedIssues !== undefined ? `-${pr.fixedIssues}` : "N/A";
+  const newI = formatIssueCount(prQualityMetric(pr, "newIssues"), "+");
+  const fixI = formatIssueCount(prQualityMetric(pr, "fixedIssues"), "-");
   const newColored = colorByGate(newI, passing);
   return `${newColored} / ${ansis.dim(fixI)}`;
 }

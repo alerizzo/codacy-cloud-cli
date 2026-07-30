@@ -11,6 +11,11 @@ import {
   formatGrade,
   formatCountCell,
   formatCoverageCell,
+  formatDelta,
+  formatPrCoverage,
+  formatPrIssues,
+  prQualityMetric,
+  hasAnyPrCoverage,
 } from "./formatting";
 
 // Mock ansis to return raw text for easier testing
@@ -231,6 +236,132 @@ describe("formatCoverageCell", () => {
   it("renders a dash when coverage is absent (undefined or null)", () => {
     expect(formatCoverageCell(undefined)).toBe("-");
     expect(formatCoverageCell(null)).toBe("-");
+  });
+});
+
+describe("formatDelta", () => {
+  it("signs the delta", () => {
+    expect(formatDelta(21)).toBe("+21");
+    expect(formatDelta(-3)).toBe("-3");
+    expect(formatDelta(0)).toBe("0");
+  });
+
+  it("renders a dash when the delta is absent", () => {
+    expect(formatDelta(undefined)).toBe("-");
+  });
+});
+
+describe("formatPrCoverage", () => {
+  it("renders diff coverage with the delta in parentheses", () => {
+    expect(
+      formatPrCoverage({
+        coverage: { diffCoverage: { value: 85 }, deltaCoverage: -1.5 },
+      } as any),
+    ).toBe("85.0% (-1.5%)");
+  });
+
+  it("renders a dash when the repo reports no coverage numbers", () => {
+    expect(
+      formatPrCoverage({
+        coverage: { diffCoverage: { cause: "MissingRequirements" } },
+      } as any),
+    ).toBe("-");
+    expect(formatPrCoverage({} as any)).toBe("-");
+  });
+});
+
+describe("formatPrIssues", () => {
+  it("renders new / fixed issue counts", () => {
+    expect(formatPrIssues({ newIssues: 3, fixedIssues: 1 } as any)).toBe(
+      "+3 / -1",
+    );
+  });
+
+  it("reads the counts from the nested quality object", () => {
+    expect(
+      formatPrIssues({ quality: { newIssues: 3, fixedIssues: 1 } } as any),
+    ).toBe("+3 / -1");
+  });
+
+  it("renders zero without a sign", () => {
+    expect(formatPrIssues({ newIssues: 0, fixedIssues: 0 } as any)).toBe(
+      "0 / 0",
+    );
+    expect(formatPrIssues({ newIssues: 2, fixedIssues: 0 } as any)).toBe(
+      "+2 / 0",
+    );
+  });
+
+  it("renders dashes when the counts are absent", () => {
+    expect(formatPrIssues({} as any)).toBe("- / -");
+  });
+});
+
+describe("prQualityMetric", () => {
+  it("prefers the nested quality value over the flat one", () => {
+    expect(
+      prQualityMetric(
+        { deltaComplexity: 1, quality: { deltaComplexity: 21 } } as any,
+        "deltaComplexity",
+      ),
+    ).toBe(21);
+  });
+
+  // The pull-request endpoints omit the top-level `deltaComplexity` entirely
+  // while still populating `quality.deltaComplexity`.
+  it("reads the nested value when the flat field is missing", () => {
+    expect(
+      prQualityMetric({ quality: { deltaComplexity: 21 } } as any, "deltaComplexity"),
+    ).toBe(21);
+  });
+
+  it("falls back to the flat field when quality is absent", () => {
+    expect(
+      prQualityMetric({ deltaClonesCount: 2 } as any, "deltaClonesCount"),
+    ).toBe(2);
+  });
+
+  it("is undefined when neither is present", () => {
+    expect(prQualityMetric({} as any, "deltaComplexity")).toBeUndefined();
+  });
+
+  it("keeps a nested zero rather than falling through to the flat field", () => {
+    expect(
+      prQualityMetric(
+        { deltaClonesCount: 5, quality: { deltaClonesCount: 0 } } as any,
+        "deltaClonesCount",
+      ),
+    ).toBe(0);
+  });
+});
+
+describe("hasAnyPrCoverage", () => {
+  it("is true when at least one PR has a diff coverage value", () => {
+    expect(
+      hasAnyPrCoverage([
+        { coverage: { diffCoverage: { cause: "MissingRequirements" } } },
+        { coverage: { diffCoverage: { value: 85 } } },
+      ] as any),
+    ).toBe(true);
+  });
+
+  it("is true when a PR only has a coverage delta", () => {
+    expect(hasAnyPrCoverage([{ coverage: { deltaCoverage: -1.5 } }] as any)).toBe(
+      true,
+    );
+  });
+
+  it("is false when no PR carries coverage numbers", () => {
+    expect(
+      hasAnyPrCoverage([
+        { coverage: { diffCoverage: { cause: "MissingRequirements" } } },
+        {},
+      ] as any),
+    ).toBe(false);
+  });
+
+  it("is false for an empty list", () => {
+    expect(hasAnyPrCoverage([])).toBe(false);
   });
 });
 

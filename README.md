@@ -85,6 +85,7 @@ Supported providers: GitHub (`gh`), GitLab (`gl`), Bitbucket (`bb`).
 | `findings [provider] [org] [repo]` | Show security findings for a repository or organization |
 | `finding <provider> <org> <id>` | Show details for a single security finding, or ignore/unignore it |
 | `pull-request [provider] [org] [repo] <pr>` | Show PR analysis, issues, diff coverage, and changed files; or reanalyze it (optionally waiting for results) |
+| `pull-requests [provider] [org] [repo]` | List pull requests for a repository, with analysis data and text/branch filters |
 | `tools [provider] [org] [repo]` | List analysis tools configured for a repository |
 | `tool [provider] [org] [repo] <tool>` | Enable, disable, or configure an analysis tool |
 | `patterns [provider] [org] [repo] <tool>` | List patterns for a tool, or bulk enable/disable them |

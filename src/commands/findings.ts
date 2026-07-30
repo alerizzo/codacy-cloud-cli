@@ -353,7 +353,7 @@ Examples:
 
         // Show repository column only when browsing org-wide (no repo filter)
         printFindingsList(items, total, !repository);
-        if (total > items.length) {
+        if (total > items.length || cursor) {
           printPaginationWarning(
             { cursor: "more", limit: items.length },
             "Use --limit <n> (max 1000) to fetch more, or --severities, --statuses to filter.",
