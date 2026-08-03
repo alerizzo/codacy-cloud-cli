@@ -1,5 +1,19 @@
 # @codacy/codacy-cloud-cli
 
+## 1.8.0
+
+### Minor Changes
+
+- [#35](https://github.com/codacy/codacy-cloud-cli/pull/35) [`72a4d3b`](https://github.com/codacy/codacy-cloud-cli/commit/72a4d3b2f3a7572108f8b297b49ef8ba76c48718) Thanks [@pedrobpereira](https://github.com/pedrobpereira)! - New `pull-requests` (`prs`) command: lists pull requests for a repository, with the same analysis-gated columns as `repository`'s "Open Pull Requests" table. `-q, --search` and `-B, --base` filter by free text (title/author handle) and target branch, mapping to the API's `textQuery`/`targetBranch` params; `-S, --state` filters by open (default) or closed.
+
+### Patch Changes
+
+- [#35](https://github.com/codacy/codacy-cloud-cli/pull/35) [`72a4d3b`](https://github.com/codacy/codacy-cloud-cli/commit/72a4d3b2f3a7572108f8b297b49ef8ba76c48718) Thanks [@pedrobpereira](https://github.com/pedrobpereira)! - Fix `findings`'s pagination warning silently not firing when the API response omits `pagination.total`: the guard now also checks for a remaining `cursor`, so a trailing page of results is no longer hidden from the `--limit` hint.
+
+- [#35](https://github.com/codacy/codacy-cloud-cli/pull/35) [`72a4d3b`](https://github.com/codacy/codacy-cloud-cli/commit/72a4d3b2f3a7572108f8b297b49ef8ba76c48718) Thanks [@pedrobpereira](https://github.com/pedrobpereira)! - `formatStandards()` (used by `repository`'s Open Pull Requests table, `pull-request`'s Up to Standards row, and `pull-requests`' ✓ column) now shows a dim `⋯` while a pull request is still being analysed, instead of falling through to a hard ✗ on gate data that isn't final yet.
+
+- [#35](https://github.com/codacy/codacy-cloud-cli/pull/35) [`72a4d3b`](https://github.com/codacy/codacy-cloud-cli/commit/72a4d3b2f3a7572108f8b297b49ef8ba76c48718) Thanks [@pedrobpereira](https://github.com/pedrobpereira)! - Fix PR complexity showing as no data, and polish the `pull-requests` table. Complexity is now read from the API's nested `quality` object, which is where the pull-request endpoints actually return it — `pull-requests`, `pull-request` and `repository` all previously rendered it as empty. The `pull-requests` table now leads with the up-to-standards column, orders metrics the same way `repositories` does (issues, complexity, duplication, coverage), hides the Coverage column when no listed PR has coverage data, shows `-` instead of `N/A` for metrics with no value, and no longer signs a zero issue count (`0` instead of `-0`). `--output json` now includes the quality and coverage `resultReasons`, so consumers can see which gates passed or failed.
+
 ## 1.7.0
 
 ### Minor Changes
