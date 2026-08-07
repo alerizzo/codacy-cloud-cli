@@ -13,7 +13,7 @@ npm install -g "@codacy/codacy-cloud-cli"
 ### From source
 
 ```bash
-git clone https://github.com/alerizzo/codacy-cloud-cli.git
+git clone https://github.com/codacy/codacy-cloud-cli.git
 cd codacy-cloud-cli
 npm install
 npm run build
