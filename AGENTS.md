@@ -88,14 +88,18 @@ codacy-cloud-cli/
 - **Error handling:** Use `try/catch` with the shared `handleError()` from `src/utils/error.ts`
 - **API base URL:** `https://app.codacy.com/api/v3` (configured in `src/index.ts` via `OpenAPI.BASE`)
 - **Authentication — two token kinds.** Read `SPECS/repository-tokens.md` before touching auth or adding a command.
-  - An **account token** (`api-token` header) reaches everything its owner can see. A **repository token** (`project-token` header) is scoped to one repository and is accepted only on a fixed whitelist of 13 operations; everywhere else Codacy rejects it as if no token had been sent.
+  - An **account token** (`api-token` header) reaches everything its owner can see.
+  - A **repository token** (`project-token` header) is scoped to one repository. It is accepted only on a fixed whitelist of 13 operations; everywhere else Codacy rejects it as if no token had been sent.
   - Every command that calls the API resolves auth first, via `resolveAuth(this)` from `src/utils/auth.ts` (returns a `RemoteAuth` discriminated union), and declares `.addOption(repositoryTokenOption())` so `--repository-token` parses.
   - **New commands must decide their token scope**, using the whitelist in `SPECS/repository-tokens.md`:
     - account-only end to end → `resolveAccountAuth(this, "<why a repository token can't do it>")`
     - fully whitelisted → `resolveAuth(this)`
     - mixed → `resolveAuth(this)` plus `requireAccountToken(auth, "<operation>", "<why>")` per unsupported flag, or `fetchIfAccountToken(...)` to skip an unsupported sub-call
   - **Guards must run before any request**, and before `resolveRepoArgs()` — that shells out to git and prints an auto-detection line, which is misleading ahead of a refusal.
-  - The whitelist is hardcoded in these guards. **Re-verify it after every `npm run update-api`.**
+    - Exception: a command whose endpoints are all whitelisted needs no guard at all — `resolveAuth(this)` alone is correct (see `tool`, `patterns`, `pattern`).
+    - If an operation's scope is genuinely unclear, don't guess a guard: confirm the whitelist against the API owners, and record the answer in `SPECS/repository-tokens.md`.
+  - The whitelist is hardcoded in these guards.
+  - **Re-verify the whitelist after every `npm run update-api`.**
 
 ### Command Pattern
 
