@@ -583,6 +583,13 @@ Examples:
         const expectsCoverage = !!(coverageReportsResponse as any).data?.hasCoverageOverview;
         const hasCoverageData = data.coverage?.coveragePercentage !== undefined;
 
+        const unavailableSections = [
+          ...(prsUnavailable ? ["pullRequests"] : []),
+          // Only skipped, never merely failed — listCoverageReports is guarded
+          // by fetchIfAccountToken alone.
+          ...(auth.kind === "account-token" ? [] : ["coverageReports"]),
+        ];
+
         if (format === "json") {
           printJson(pickDeep({
             repository: {
@@ -593,9 +600,15 @@ Examples:
             // and `| length` keep working. `unavailable` is what distinguishes
             // "no open pull requests" from "couldn't look"; pickDeep drops
             // undefined, so it stays absent whenever the data is real.
+            //
+            // Coverage reports are listed too even though no coverage key is
+            // projected: skipping them forces `expectsCoverage` false, which
+            // silently suppresses the "missing/waiting for coverage reports"
+            // state. Without this a repo that *is* configured for coverage but
+            // has uploaded none is indistinguishable from a healthy one.
             pullRequests,
             issuesOverview: issuesCounts,
-            unavailable: prsUnavailable ? ["pullRequests"] : undefined,
+            unavailable: unavailableSections.length ? unavailableSections : undefined,
           }, [
             // About
             "repository.repository.provider",

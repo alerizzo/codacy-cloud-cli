@@ -61,7 +61,7 @@ Codacy accepts repository tokens on a **limited set of repository-scoped operati
 | `repository`, `repository --reanalyze` | `repository --add`/`--remove`/`--follow`/`--unfollow`/`--link-standard`/`--unlink-standard` |
 | | `pull-request`, `pull-requests`, `ls`, `directories`, `findings`, `finding` |
 
-`codacy repository` works, but omits the pull request and coverage sections — those endpoints don't accept repository tokens. In `--output json` it marks them as `"unavailable": ["pullRequests"]`.
+`codacy repository` works, but omits the pull request and coverage-report sections — those endpoints don't accept repository tokens. In `--output json` it marks them as `"unavailable": ["pullRequests", "coverageReports"]`, so a consumer can tell "none" apart from "couldn't look". Note that skipping coverage reports also suppresses the "waiting for / missing coverage reports" hint on the Analysis row.
 
 `codacy login` stores account tokens only; pass repository tokens per command or via `CODACY_PROJECT_TOKEN`.
 
@@ -73,6 +73,8 @@ Codacy accepts repository tokens on a **limited set of repository-scoped operati
 4. Stored credentials from `codacy login`
 
 An explicit `--repository-token` wins outright, so a deliberately scoped run is never silently widened by an environment variable or a stale login. Note that `CODACY_PROJECT_TOKEN` outranks `CODACY_API_TOKEN` (matching the [Codacy Analysis CLI](https://github.com/codacy/analysis-cli)) — unset it if you want your account token used.
+
+Passing `--repository-token` with an **empty** value is an error rather than a fallback. `--repository-token "$CODACY_PROJECT_TOKEN"` with the secret unset is a common CI mistake, and quietly falling back to an account token would run with much wider access than you asked for. An empty *environment variable*, by contrast, simply means "unset".
 
 ## Usage
 

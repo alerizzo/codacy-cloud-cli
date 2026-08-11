@@ -3,7 +3,7 @@ import { Command } from "commander";
 import { OpenAPI } from "./api/client/core/OpenAPI";
 import { cliVersion } from "./version";
 import { getOutputFormat } from "./utils/output";
-import { repositoryTokenOption } from "./utils/auth";
+import { BASE_HEADERS, repositoryTokenOption } from "./utils/auth";
 import { maybeNotifyUpdate } from "./utils/update-check";
 import { registerInfoCommand } from "./commands/info";
 import { registerRepositoriesCommand } from "./commands/repositories";
@@ -30,10 +30,9 @@ OpenAPI.BASE = (process.env.CODACY_API_BASE_URL || "https://app.codacy.com").rep
 // known until a command resolves its auth — every API path installs headers
 // first, via `resolveAuth()` in commands or `applyAccountToken()` in `login`.
 // Baking in `api-token` would send an empty account header on every
-// repository-token run.
-OpenAPI.HEADERS = {
-  "X-Codacy-Origin": "cli-cloud-tool",
-};
+// repository-token run. Shared with `applyAuthHeaders`, which replaces
+// OpenAPI.HEADERS wholesale and would otherwise drop anything set only here.
+OpenAPI.HEADERS = { ...BASE_HEADERS };
 
 program
   .name("codacy-cloud-cli")

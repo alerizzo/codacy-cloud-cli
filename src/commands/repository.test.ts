@@ -946,7 +946,11 @@ describe("repository command", () => {
   });
 
   describe("with a repository token", () => {
-    /** Mocks the three dashboard calls a repository token *can* make. */
+    /**
+     * Mocks the two dashboard calls whose data these tests assert on. The third
+     * whitelisted call, `listRepositoryCommits`, is already mocked file-wide by
+     * `setupDefaultMocks()`.
+     */
     function mockWhitelistedDashboardCalls() {
       vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
         data: mockRepoData as any,
@@ -993,6 +997,9 @@ describe("repository command", () => {
       expect(output).toContain("Not shown with a repository token");
       // "No open pull requests" would be a different, and false, claim.
       expect(output).not.toContain("No open pull requests");
+      // The note is derived from the token kind, so without this the test would
+      // still pass if the skip were removed and the doomed call issued anyway.
+      expect(AnalysisService.listRepositoryPullRequests).not.toHaveBeenCalled();
     });
 
     it("emits pullRequests as an empty array plus an unavailable marker in JSON", async () => {
@@ -1008,10 +1015,16 @@ describe("repository command", () => {
       const parsed = JSON.parse(calls[calls.length - 1][0]);
       // Present and iterable, so `jq '.pullRequests[]'` and `| length` still work.
       expect(parsed.pullRequests).toEqual([]);
-      expect(parsed.unavailable).toEqual(["pullRequests"]);
+      // Coverage is listed too: skipping it silently suppresses the
+      // "missing coverage reports" state, so consumers need to know.
+      expect(parsed.unavailable).toEqual(["pullRequests", "coverageReports"]);
       // The fields the auto-configuration skill reads are unaffected.
       expect(parsed.repository.fileCount).toBe(83);
       expect(parsed.repository.repository.standards).toBeDefined();
+      // Same reason as above: `unavailable` follows the token kind, so assert
+      // the call really was skipped rather than merely reported as skipped.
+      expect(AnalysisService.listRepositoryPullRequests).not.toHaveBeenCalled();
+      expect(RepositoryService.listCoverageReports).not.toHaveBeenCalled();
     });
 
     it("still supports --reanalyze", async () => {
@@ -1099,6 +1112,31 @@ describe("repository command", () => {
       expect(output).toContain("test-repo");
       expect(output).toContain("Could not load pull requests.");
       expect(output).not.toContain("Not shown with a repository token");
+    });
+
+    it("marks pull requests unavailable in JSON when the call fails", async () => {
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: mockRepoData as any,
+      });
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: { counts: mockIssuesCounts },
+      });
+      vi.mocked(AnalysisService.listRepositoryPullRequests).mockRejectedValue(
+        Object.assign(new Error("Forbidden"), { status: 403 }),
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "repository", "gh", "test-org", "test-repo",
+        "--output", "json",
+      ]);
+
+      const calls = (console.log as ReturnType<typeof vi.fn>).mock.calls;
+      const parsed = JSON.parse(calls[calls.length - 1][0]);
+      // The marker tracks "couldn't look", whatever the cause — a failed call
+      // under an account token, not just a skipped one under a repo token.
+      expect(parsed.unavailable).toEqual(["pullRequests"]);
+      expect(parsed.pullRequests).toEqual([]);
     });
 
     it("omits the unavailable marker from JSON", async () => {

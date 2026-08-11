@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Command } from "commander";
 import { registerLogoutCommand } from "./logout";
 
@@ -45,6 +45,12 @@ describe("logout command", () => {
   });
 
   describe("--repository-token", () => {
+    // In afterEach, not inline: a failing assertion above must not leak
+    // this var into the rest of the file.
+    afterEach(() => {
+      delete process.env.CODACY_PROJECT_TOKEN;
+    });
+
     it("warns that the flag is ignored, but still logs out", async () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       vi.mocked(deleteCredentials).mockReturnValue(true);
@@ -71,7 +77,6 @@ describe("logout command", () => {
       expect(errorSpy.mock.calls.flat().join("\n")).not.toContain(
         "--repository-token",
       );
-      delete process.env.CODACY_PROJECT_TOKEN;
     });
   });
 });

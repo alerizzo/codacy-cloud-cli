@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { Command } from "commander";
 import { OpenAPI } from "../api/client/core/OpenAPI";
 import {
+  EMPTY_REPOSITORY_TOKEN_MESSAGE,
   NO_TOKEN_MESSAGE,
   applyAccountToken,
   applyAuthHeaders,
@@ -68,6 +69,21 @@ describe("resolveAuthFromToken precedence", () => {
     expect(loadCredentials).not.toHaveBeenCalled();
   });
 
+  it("prefers CODACY_PROJECT_TOKEN over stored credentials", () => {
+    // The adjacent cases only pin this ordering transitively (project > api,
+    // api > credentials). Asserted directly so reordering the credentials
+    // lookup above the project-token check can't slip through.
+    process.env.CODACY_PROJECT_TOKEN = "env-project";
+    vi.mocked(loadCredentials).mockReturnValue("stored");
+
+    expect(resolveAuthFromToken()).toEqual({
+      kind: "repository-token",
+      token: "env-project",
+      source: "CODACY_PROJECT_TOKEN",
+    });
+    expect(loadCredentials).not.toHaveBeenCalled();
+  });
+
   it("falls back to stored credentials last", () => {
     vi.mocked(loadCredentials).mockReturnValue("stored");
 
@@ -80,6 +96,29 @@ describe("resolveAuthFromToken precedence", () => {
 
   it("throws when no token can be resolved", () => {
     expect(() => resolveAuthFromToken()).toThrow(NO_TOKEN_MESSAGE);
+  });
+
+  it("refuses an explicitly empty --repository-token instead of falling back", () => {
+    // The CI footgun this guards: `--repository-token "$CODACY_PROJECT_TOKEN"`
+    // with the secret unset. Falling through would run with the ambient account
+    // token — far wider access than the scoped run that was asked for.
+    process.env.CODACY_API_TOKEN = "env-account";
+    vi.mocked(loadCredentials).mockReturnValue("stored");
+
+    expect(() => resolveAuthFromToken("")).toThrow(EMPTY_REPOSITORY_TOKEN_MESSAGE);
+    expect(() => resolveAuthFromToken("   ")).toThrow(EMPTY_REPOSITORY_TOKEN_MESSAGE);
+    // Crucially, no header is installed at all on the way out — the throw
+    // precedes applyAuthHeaders, so the ambient account token never reaches
+    // the client.
+    expect(OpenAPI.HEADERS).toBeUndefined();
+  });
+
+  it("trims a padded --repository-token", () => {
+    expect(resolveAuthFromToken("  rt  ")).toEqual({
+      kind: "repository-token",
+      token: "rt",
+      source: "flag",
+    });
   });
 
   it("ignores an empty CODACY_PROJECT_TOKEN", () => {

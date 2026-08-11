@@ -44,6 +44,13 @@ export const NO_TOKEN_MESSAGE =
   "No API token found. Provide --repository-token, set CODACY_PROJECT_TOKEN, " +
   "set CODACY_API_TOKEN, or run 'codacy login'.";
 
+export const EMPTY_REPOSITORY_TOKEN_MESSAGE =
+  "--repository-token was given an empty value. This is refused rather than " +
+  "ignored: falling back to an account token would silently run with far wider " +
+  "access than the scoped run you asked for. Check the variable you passed " +
+  "(e.g. --repository-token \"$CODACY_PROJECT_TOKEN\" with the secret unset), " +
+  "or drop the flag to use an account token deliberately.";
+
 const REPOSITORY_TOKEN_FLAGS = "--repository-token <token>";
 const REPOSITORY_TOKEN_DESCRIPTION =
   "repository (project) token, scoped to a single repository (env: CODACY_PROJECT_TOKEN)";
@@ -78,10 +85,20 @@ export function repositoryTokenOption(): Option {
  */
 export function repositoryTokenFlag(command: Command): string | undefined {
   const own = command.opts().repositoryToken;
-  if (typeof own === "string" && own !== "") return own;
+  if (typeof own === "string") return own;
   const inherited = command.optsWithGlobals().repositoryToken;
-  return typeof inherited === "string" && inherited !== "" ? inherited : undefined;
+  return typeof inherited === "string" ? inherited : undefined;
 }
+
+/**
+ * Headers sent on every request regardless of token kind. Single source of
+ * truth: `applyAuthHeaders` replaces `OpenAPI.HEADERS` wholesale, so anything
+ * only set at startup in `src/index.ts` would be dropped by the first command
+ * that resolves auth.
+ */
+export const BASE_HEADERS: Record<string, string> = {
+  "X-Codacy-Origin": "cli-cloud-tool",
+};
 
 /**
  * Point the generated client at a token. Auth is process-global
@@ -94,8 +111,8 @@ export function repositoryTokenFlag(command: Command): string | undefined {
 export function applyAuthHeaders(auth: RemoteAuth): void {
   const tokenHeader = auth.kind === "account-token" ? "api-token" : "project-token";
   OpenAPI.HEADERS = {
+    ...BASE_HEADERS,
     [tokenHeader]: auth.token,
-    "X-Codacy-Origin": "cli-cloud-tool",
   };
 }
 
@@ -132,18 +149,26 @@ const SOURCE_DESCRIPTIONS: Record<RemoteAuth["source"], string> = {
  * An explicit flag wins outright — it never even looks for an account token, so
  * a deliberately-scoped run can't be silently widened by an ambient env var or
  * a stale login lying around.
+ *
+ * An explicitly-passed but *empty* flag is an error, not a miss. `--repository-token
+ * "$CODACY_PROJECT_TOKEN"` with the secret unset is a routine CI mistake, and
+ * treating it as "no flag" would hand the run an ambient account token — the
+ * widening this function exists to prevent. Empty *env vars* are different: they
+ * mean "unset" by convention (the test config relies on it), so they fall through.
  */
 function pickAuth(flagToken?: string): RemoteAuth {
-  if (flagToken) {
-    return { kind: "repository-token", token: flagToken, source: "flag" };
+  if (flagToken !== undefined) {
+    const token = flagToken.trim();
+    if (!token) throw new Error(EMPTY_REPOSITORY_TOKEN_MESSAGE);
+    return { kind: "repository-token", token, source: "flag" };
   }
 
-  const projectEnv = process.env.CODACY_PROJECT_TOKEN;
+  const projectEnv = process.env.CODACY_PROJECT_TOKEN?.trim();
   if (projectEnv) {
     return { kind: "repository-token", token: projectEnv, source: "CODACY_PROJECT_TOKEN" };
   }
 
-  const accountEnv = process.env.CODACY_API_TOKEN;
+  const accountEnv = process.env.CODACY_API_TOKEN?.trim();
   if (accountEnv) {
     return { kind: "account-token", token: accountEnv, source: "CODACY_API_TOKEN" };
   }
@@ -234,6 +259,8 @@ export function repositoryTokenSkipNote(what: string): string {
  * trains users to ignore the warning that does matter.
  */
 export function warnUnusedRepositoryToken(command: Command, detail: string): void {
-  if (!repositoryTokenFlag(command)) return;
+  // Presence, not truthiness: `--repository-token ""` was still typed by the
+  // user, and is still being ignored here.
+  if (repositoryTokenFlag(command) === undefined) return;
   console.error(ansis.yellow(`Warning: --repository-token is ignored by ${detail}`));
 }

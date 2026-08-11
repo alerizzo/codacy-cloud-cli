@@ -97,6 +97,7 @@ codacy-cloud-cli/
     - mixed → `resolveAuth(this)` plus `requireAccountToken(auth, "<operation>", "<why>")` per unsupported flag, or `fetchIfAccountToken(...)` to skip an unsupported sub-call
   - **Guards must run before any request**, and before `resolveRepoArgs()` — that shells out to git and prints an auto-detection line, which is misleading ahead of a refusal.
     - Exception: a command whose endpoints are all whitelisted needs no guard at all — `resolveAuth(this)` alone is correct (see `tool`, `patterns`, `pattern`).
+    - Exception: a guard whose condition depends on fetched data must run after that fetch (see `guardForceUnlink` in `tools.ts`, which needs the coding-standard count). Keep those reads whitelisted so nothing doomed is sent, and still refuse before any prompt or mutation.
     - If an operation's scope is genuinely unclear, don't guess a guard.
     - Confirm the whitelist against the API owners instead.
     - Record the answer in `SPECS/repository-tokens.md`.

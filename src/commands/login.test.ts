@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Command } from "commander";
 import { registerLoginCommand } from "./login";
 import { AccountService } from "../api/client/services/AccountService";
@@ -114,6 +114,12 @@ describe("login command", () => {
   });
 
   describe("--repository-token", () => {
+    // In afterEach, not inline: a failing assertion above must not leak
+    // this var into the rest of the file.
+    afterEach(() => {
+      delete process.env.CODACY_PROJECT_TOKEN;
+    });
+
     function warnings(): string {
       return (console.error as ReturnType<typeof vi.fn>).mock.calls
         .flat()
@@ -144,7 +150,6 @@ describe("login command", () => {
       await program.parseAsync(["node", "test", "login", "--token", "account-token"]);
 
       expect(warnings()).not.toContain("--repository-token");
-      delete process.env.CODACY_PROJECT_TOKEN;
     });
 
     it("explains that a repository token cannot be used to log in", async () => {

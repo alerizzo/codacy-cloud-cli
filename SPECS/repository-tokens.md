@@ -27,6 +27,13 @@ An explicit `--repository-token` wins outright — it never even looks for an
 account token, so a deliberately-scoped run can't be silently widened by an
 ambient env var or a stale login.
 
+An explicitly-passed **empty** flag throws (`EMPTY_REPOSITORY_TOKEN_MESSAGE`)
+rather than falling through. `--repository-token "$CODACY_PROJECT_TOKEN"` with
+the secret unset is a routine CI mistake, and treating it as "no flag" would
+hand the run an ambient account token — precisely the widening the precedence
+rule exists to prevent. Empty *env vars* keep meaning "unset" (the test config
+depends on it). Both flag and env values are trimmed.
+
 > ⚠️ Because `CODACY_PROJECT_TOKEN` outranks `CODACY_API_TOKEN`, and it is the
 > variable the Codacy coverage reporter reads (so it is routinely exported
 > job-wide in CI), `vitest.config.mts` blanks it via `test.env` — otherwise token
@@ -105,8 +112,13 @@ partial-but-sufficient `repository` dashboard.
   reads as a bug, and `printPullRequests([])` would claim "No open pull
   requests", a different and false statement. In JSON, `pullRequests` stays `[]`
   (so `jq '.pullRequests[]'` and `| length` keep working) and an additive
-  `unavailable: ["pullRequests"]` distinguishes "none" from "couldn't look".
+  `unavailable` array distinguishes "none" from "couldn't look".
   Under an account token the payload is byte-identical to before this change.
+  `unavailable` lists `coverageReports` too, even though no coverage key is
+  projected: skipping that call forces `expectsCoverage` false, which silently
+  suppresses the "waiting for / missing coverage reports" state on the Analysis
+  row — without the marker, a repo that *is* configured for coverage but has
+  uploaded none would look identical to a healthy one.
 - **`login` is account-only.** It validates against `/user`, which a repository
   token can never reach, and the credentials store holds a single bare token
   with no record of its kind. Its 401 message names the repository-token case
