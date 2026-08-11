@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import {
@@ -711,6 +711,7 @@ export function registerPullRequestCommand(program: Command) {
       "-w, --reanalyze-and-wait",
       "request reanalysis of this pull request, wait for it to finish, then show what changed",
     )
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -735,7 +736,7 @@ Examples:
       prNumberArg?: string,
     ) {
       try {
-        checkApiToken();
+        resolveAccountAuth(this, "Codacy does not accept repository tokens on the pull request endpoints");
         const { provider, organization, repository, trailingArgs } =
           resolveRepoArgs(
             [providerArg, organizationArg, repositoryArg, prNumberArg],

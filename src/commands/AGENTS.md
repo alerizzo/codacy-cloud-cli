@@ -42,6 +42,8 @@ Every command must declare a short alias via `.alias()`. Keep aliases short (2â€
 
 Every command option must have both a short flag and a long flag: `-X, --long-name <value>`. Pick single letters that are intuitive and don't conflict with Commander's built-in flags (`-V/--version`, `-h/--help`) or the global `-o/--output` option. When the natural letter is already taken, use uppercase (e.g. `-O, --overview` instead of `-o`).
 
+**Exception â€” cross-command options are long-only.** An option declared on *every* command (currently `--repository-token`, `--no-update-notifier`) can't safely take a short flag: the short-flag space is already contested per command, so any letter would mean different things in different places (`-r` is `repository --remove`, `-R` is `--reanalyze`, `-t` is `--tags` on `issues`/`patterns` but `--token` on `login`). `codacy-analysis` dropped its `--repository-token` short flag for the same reason. Do not add short flags to these.
+
 ## Option Naming: Singular vs Plural
 
 Use a **singular** option name when the parameter accepts a single value, and a **plural** name when it accepts a comma-separated list:

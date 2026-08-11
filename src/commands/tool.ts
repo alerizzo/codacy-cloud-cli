@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import { AnalysisService } from "../api/client/services/AnalysisService";
@@ -26,6 +26,7 @@ export function registerToolCommand(program: Command) {
       "-c, --configuration-file <true/false>",
       "use a configuration file (true or false)",
     )
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -44,7 +45,7 @@ Examples:
       toolNameArg?: string,
     ) {
       try {
-        checkApiToken();
+        resolveAuth(this);
         const { provider, organization, repository, trailingArgs } =
           resolveRepoArgs(
             [providerArg, organizationArg, repositoryArg, toolNameArg],

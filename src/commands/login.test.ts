@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Command } from "commander";
 import { registerLoginCommand } from "./login";
 import { AccountService } from "../api/client/services/AccountService";
@@ -111,5 +111,66 @@ describe("login command", () => {
 
     expect(saveCredentials).not.toHaveBeenCalled();
     mockExit.mockRestore();
+  });
+
+  describe("--repository-token", () => {
+    // In afterEach, not inline: a failing assertion above must not leak
+    // this var into the rest of the file.
+    afterEach(() => {
+      delete process.env.CODACY_PROJECT_TOKEN;
+    });
+
+    function warnings(): string {
+      return (console.error as ReturnType<typeof vi.fn>).mock.calls
+        .flat()
+        .join("\n");
+    }
+
+    it("warns that the flag is ignored, but still stores the account token", async () => {
+      vi.mocked(AccountService.getUser).mockResolvedValue({ data: mockUser } as any);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "login", "--token", "account-token",
+        "--repository-token", "rt",
+      ]);
+
+      expect(warnings()).toContain("--repository-token is ignored by");
+      // The flag is inert here, not fatal — the login itself must still work.
+      expect(saveCredentials).toHaveBeenCalledWith("account-token");
+    });
+
+    it("stays silent when only CODACY_PROJECT_TOKEN is set", async () => {
+      // That variable is exported job-wide in CI, so warning on it would fire on
+      // every unrelated login and train users to ignore warnings.
+      process.env.CODACY_PROJECT_TOKEN = "env-project-token";
+      vi.mocked(AccountService.getUser).mockResolvedValue({ data: mockUser } as any);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "login", "--token", "account-token"]);
+
+      expect(warnings()).not.toContain("--repository-token");
+    });
+
+    it("explains that a repository token cannot be used to log in", async () => {
+      vi.mocked(AccountService.getUser).mockRejectedValue(
+        Object.assign(new Error("Unauthorized"), { status: 401 }),
+      );
+      const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync(["node", "test", "login", "--token", "a-repo-token"]),
+      ).rejects.toThrow("process.exit called");
+
+      // A repository token is rejected by /user by design, so the 401 message has
+      // to name that case instead of only implying the token is invalid.
+      expect(warnings()).toContain("repository (project) token");
+      expect(warnings()).toContain("--repository-token");
+      expect(saveCredentials).not.toHaveBeenCalled();
+      mockExit.mockRestore();
+    });
   });
 });

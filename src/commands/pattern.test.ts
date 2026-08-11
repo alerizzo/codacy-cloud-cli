@@ -557,4 +557,24 @@ describe("pattern command", () => {
       );
     });
   });
+
+  // configureTool and the two reads this command makes are all on the
+  // repository-token whitelist, so no guard is needed and no account token either.
+  it("modifies a pattern with only a repository token", async () => {
+    delete process.env.CODACY_API_TOKEN;
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "pattern", "gh", "test-org", "test-repo", "eslint",
+      "no-unused-vars", "--enable", "--repository-token", "rt",
+    ]);
+
+    expect(AnalysisService.configureTool).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      "test-repo",
+      "uuid-eslint",
+      { patterns: [{ id: "no-unused-vars", enabled: true }] },
+    );
+  });
 });

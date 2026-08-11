@@ -304,4 +304,25 @@ describe("tool command", () => {
       );
     });
   });
+
+  // Both endpoints this command uses are on the repository-token whitelist, so
+  // every mode works — no guard, and no account token needed at all.
+  it("configures a tool with only a repository token", async () => {
+    delete process.env.CODACY_API_TOKEN;
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "tool", "gh", "test-org", "test-repo", "eslint",
+      "--enable", "--repository-token", "rt",
+    ]);
+
+    expect(AnalysisService.listRepositoryTools).toHaveBeenCalled();
+    expect(AnalysisService.configureTool).toHaveBeenCalledWith(
+      "gh",
+      "test-org",
+      "test-repo",
+      "uuid-eslint",
+      { enabled: true },
+    );
+  });
 });

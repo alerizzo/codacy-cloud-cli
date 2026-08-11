@@ -86,9 +86,26 @@ codacy-cloud-cli/
   - Prefer that over calling `setTimeout`/`sleep` directly in a command, unless you have a clear reason not to.
   - Default cadence is `POLL_INTERVAL_MS` (10s), capped at `MAX_WAIT_MS` (20min).
 - **Error handling:** Use `try/catch` with the shared `handleError()` from `src/utils/error.ts`
-- **Authentication:** All commands that call the API must call `checkApiToken()` from `src/utils/auth.ts` before making requests
 - **API base URL:** `https://app.codacy.com/api/v3` (configured in `src/index.ts` via `OpenAPI.BASE`)
-- **Auth mechanism:** `CODACY_API_TOKEN` environment variable, sent as `api-token` header
+- **Authentication — two token kinds.** Read `SPECS/repository-tokens.md` before touching auth or adding a command.
+  - An **account token** (`api-token` header) reaches everything its owner can see.
+  - A **repository token** (`project-token` header) is scoped to one repository. It is accepted only on a fixed whitelist of 13 operations; everywhere else Codacy rejects it as if no token had been sent.
+  - Every command that calls the API resolves auth first, via `resolveAuth(this)` from `src/utils/auth.ts` (returns a `RemoteAuth` discriminated union), and declares `.addOption(repositoryTokenOption())` so `--repository-token` parses.
+  - **New commands must decide their token scope**, using the whitelist in `SPECS/repository-tokens.md`:
+    - account-only end to end → `resolveAccountAuth(this, "<why a repository token can't do it>")`
+    - fully whitelisted → `resolveAuth(this)`
+    - mixed → `resolveAuth(this)` plus `requireAccountToken(auth, "<operation>", "<why>")` per unsupported flag, or `fetchIfAccountToken(...)` to skip an unsupported sub-call
+  - **Guards must run before any request**, and before `resolveRepoArgs()` — that shells out to git and prints an auto-detection line, which is misleading ahead of a refusal.
+    - Exception: a command whose endpoints are all whitelisted needs no guard at all — `resolveAuth(this)` alone is correct (see `tool`, `patterns`, `pattern`).
+    - Exception: a data-dependent guard runs after the fetch it depends on.
+    - Example: `guardForceUnlink` in `tools.ts` needs the coding-standard count.
+    - Keep those reads whitelisted, so nothing doomed is sent.
+    - Refuse before any prompt or mutation even so.
+    - If an operation's scope is genuinely unclear, don't guess a guard.
+    - Confirm the whitelist against the API owners instead.
+    - Record the answer in `SPECS/repository-tokens.md`.
+  - The whitelist is hardcoded in these guards.
+  - **Re-verify the whitelist after every `npm run update-api`.**
 
 ### Command Pattern
 
@@ -98,7 +115,7 @@ Every command file follows this structure:
 // src/commands/<command-name>.ts
 import { Command } from "commander";
 import ora from "ora";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 // Import relevant API service(s)
 
@@ -108,9 +125,14 @@ export function register<Name>Command(program: Command) {
     .description("Clear description of what this command does")
     .argument("[args]", "Description of arguments")
     .option("--flag <value>", "Description of options")
-    .action(async (args, options) => {
+    // Declared per command (not only in index.ts) so `--repository-token` parses
+    // in the test harnesses, which each build a bare `new Command()`.
+    .addOption(repositoryTokenOption())
+    .action(async function (this: Command, args, options) {
       try {
-        checkApiToken();
+        // Or resolveAccountAuth(this, "<why>") for an account-only command —
+        // see the Authentication bullet above.
+        const auth = resolveAuth(this);
         const spinner = ora("Loading...").start();
         // Call API service
         // Format and display output
@@ -216,7 +238,8 @@ When completing work, agents **must** update relevant documentation:
 
 | Variable | Required | Description |
 |---|---|---|
-| `CODACY_API_TOKEN` | Yes | API token for authenticating with Codacy. Get it from Codacy > Account > API Tokens |
+| `CODACY_API_TOKEN` | One of the two | Account API token. Get it from Codacy > Account > API Tokens |
+| `CODACY_PROJECT_TOKEN` | One of the two | Repository (project) token, scoped to one repository. Get it from Codacy > Repository > Settings > Integrations > Project API token. **Outranks `CODACY_API_TOKEN`** — see `SPECS/repository-tokens.md` |
 
 ## Useful Context
 

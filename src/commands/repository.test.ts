@@ -944,4 +944,222 @@ describe("repository command", () => {
       expect(parsed.totals).toEqual({ before: 15, after: 17, net: 2 });
     });
   });
+
+  describe("with a repository token", () => {
+    /**
+     * Mocks the two dashboard calls whose data these tests assert on. The third
+     * whitelisted call, `listRepositoryCommits`, is already mocked file-wide by
+     * `setupDefaultMocks()`.
+     */
+    function mockWhitelistedDashboardCalls() {
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: mockRepoData as any,
+      });
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: { counts: mockIssuesCounts },
+      });
+    }
+
+    function getAllOutput(): string {
+      return (console.log as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0])
+        .join("\n");
+    }
+
+    it("skips the pull request and coverage calls entirely", async () => {
+      mockWhitelistedDashboardCalls();
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "repository", "gh", "test-org", "test-repo",
+        "--repository-token", "rt",
+      ]);
+
+      // Both are outside a repository token's scope: don't even try.
+      expect(AnalysisService.listRepositoryPullRequests).not.toHaveBeenCalled();
+      expect(RepositoryService.listCoverageReports).not.toHaveBeenCalled();
+      // The whitelisted calls still run, so the dashboard is still worth showing.
+      expect(AnalysisService.getRepositoryWithAnalysis).toHaveBeenCalled();
+      expect(AnalysisService.issuesOverview).toHaveBeenCalled();
+    });
+
+    it("keeps the pull request section header and explains the omission", async () => {
+      mockWhitelistedDashboardCalls();
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "repository", "gh", "test-org", "test-repo",
+        "--repository-token", "rt",
+      ]);
+
+      const output = getAllOutput();
+      expect(output).toContain("Open Pull Requests");
+      expect(output).toContain("Not shown with a repository token");
+      // "No open pull requests" would be a different, and false, claim.
+      expect(output).not.toContain("No open pull requests");
+      // The note is derived from the token kind, so without this the test would
+      // still pass if the skip were removed and the doomed call issued anyway.
+      expect(AnalysisService.listRepositoryPullRequests).not.toHaveBeenCalled();
+    });
+
+    it("emits pullRequests as an empty array plus an unavailable marker in JSON", async () => {
+      mockWhitelistedDashboardCalls();
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "repository", "gh", "test-org", "test-repo",
+        "--repository-token", "rt", "--output", "json",
+      ]);
+
+      const calls = (console.log as ReturnType<typeof vi.fn>).mock.calls;
+      const parsed = JSON.parse(calls[calls.length - 1][0]);
+      // Present and iterable, so `jq '.pullRequests[]'` and `| length` still work.
+      expect(parsed.pullRequests).toEqual([]);
+      // Coverage is listed too: skipping it silently suppresses the
+      // "missing coverage reports" state, so consumers need to know.
+      expect(parsed.unavailable).toEqual(["pullRequests", "coverageReports"]);
+      // The fields the auto-configuration skill reads are unaffected.
+      expect(parsed.repository.fileCount).toBe(83);
+      expect(parsed.repository.repository.standards).toBeDefined();
+      // Same reason as above: `unavailable` follows the token kind, so assert
+      // the call really was skipped rather than merely reported as skipped.
+      expect(AnalysisService.listRepositoryPullRequests).not.toHaveBeenCalled();
+      expect(RepositoryService.listCoverageReports).not.toHaveBeenCalled();
+    });
+
+    it("still supports --reanalyze", async () => {
+      vi.mocked(RepositoryService.reanalyzeCommitById).mockResolvedValue(
+        undefined as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "repository", "gh", "test-org", "test-repo",
+        "--reanalyze", "--repository-token", "rt",
+      ]);
+
+      expect(RepositoryService.reanalyzeCommitById).toHaveBeenCalled();
+    });
+
+    it.each([
+      ["--add", () => RepositoryService.addRepository],
+      ["--remove", () => RepositoryService.deleteRepository],
+      ["--follow", () => RepositoryService.followAddedRepository],
+      ["--unfollow", () => RepositoryService.unfollowRepository],
+    ])("refuses %s without calling the API", async (flag, service) => {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "repository", "gh", "test-org", "test-repo",
+          flag, "--repository-token", "rt",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(service()).not.toHaveBeenCalled();
+      expect(exitSpy).toHaveBeenCalled();
+    });
+
+    it.each(["--link-standard", "--unlink-standard"])(
+      "refuses %s without calling the coding standards API",
+      async (flag) => {
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        vi.spyOn(process, "exit").mockImplementation(() => {
+          throw new Error("process.exit called");
+        });
+
+        const program = createProgram();
+        await expect(
+          program.parseAsync([
+            "node", "test", "repository", "gh", "test-org", "test-repo",
+            flag, "12345", "--repository-token", "rt",
+          ]),
+        ).rejects.toThrow("process.exit called");
+
+        expect(
+          CodingStandardsService.applyCodingStandardToRepositories,
+        ).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  describe("with an account token", () => {
+    it("renders the dashboard even when the pull request call fails", async () => {
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: mockRepoData as any,
+      });
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: { counts: mockIssuesCounts },
+      });
+      vi.mocked(AnalysisService.listRepositoryPullRequests).mockRejectedValue(
+        Object.assign(new Error("Forbidden"), { status: 403 }),
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "repository", "gh", "test-org", "test-repo",
+      ]);
+
+      const output = (console.log as ReturnType<typeof vi.fn>).mock.calls
+        .map((c) => c[0])
+        .join("\n");
+      // The rest of the dashboard survives; the PR section says so plainly, and
+      // does not blame a repository token that isn't in use.
+      expect(output).toContain("test-repo");
+      expect(output).toContain("Could not load pull requests.");
+      expect(output).not.toContain("Not shown with a repository token");
+    });
+
+    it("marks pull requests unavailable in JSON when the call fails", async () => {
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: mockRepoData as any,
+      });
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: { counts: mockIssuesCounts },
+      });
+      vi.mocked(AnalysisService.listRepositoryPullRequests).mockRejectedValue(
+        Object.assign(new Error("Forbidden"), { status: 403 }),
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "repository", "gh", "test-org", "test-repo",
+        "--output", "json",
+      ]);
+
+      const calls = (console.log as ReturnType<typeof vi.fn>).mock.calls;
+      const parsed = JSON.parse(calls[calls.length - 1][0]);
+      // The marker tracks "couldn't look", whatever the cause — a failed call
+      // under an account token, not just a skipped one under a repo token.
+      expect(parsed.unavailable).toEqual(["pullRequests"]);
+      expect(parsed.pullRequests).toEqual([]);
+    });
+
+    it("omits the unavailable marker from JSON", async () => {
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: mockRepoData as any,
+      });
+      vi.mocked(AnalysisService.listRepositoryPullRequests).mockResolvedValue({
+        data: mockPullRequests as any,
+      });
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue({
+        data: { counts: mockIssuesCounts },
+      });
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "repository", "gh", "test-org", "test-repo",
+        "--output", "json",
+      ]);
+
+      const calls = (console.log as ReturnType<typeof vi.fn>).mock.calls;
+      const parsed = JSON.parse(calls[calls.length - 1][0]);
+      expect(parsed).not.toHaveProperty("unavailable");
+      expect(Array.isArray(parsed.pullRequests)).toBe(true);
+    });
+  });
 });

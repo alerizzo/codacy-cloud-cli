@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { getOutputFormat, pickDeep, printJson } from "../utils/output";
 import {
@@ -173,6 +173,7 @@ export function registerFindingCommand(program: Command) {
     )
     .option("-m, --ignore-comment <comment>", "optional comment for the ignore action", "")
     .option("-U, --unignore", "unignore this finding")
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -190,7 +191,7 @@ Examples:
       findingId: string,
     ) {
       try {
-        checkApiToken();
+        resolveAccountAuth(this, "Codacy does not accept repository tokens on the security findings endpoints");
         const format = getOutputFormat(this);
         const shouldIgnore: boolean = !!this.opts().ignore;
         const shouldUnignore: boolean = !!this.opts().unignore;

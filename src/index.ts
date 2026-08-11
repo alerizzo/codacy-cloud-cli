@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { OpenAPI } from "./api/client/core/OpenAPI";
 import { cliVersion } from "./version";
 import { getOutputFormat } from "./utils/output";
+import { BASE_HEADERS, repositoryTokenOption } from "./utils/auth";
 import { maybeNotifyUpdate } from "./utils/update-check";
 import { registerInfoCommand } from "./commands/info";
 import { registerRepositoriesCommand } from "./commands/repositories";
@@ -25,16 +26,22 @@ import { registerLogoutCommand } from "./commands/logout";
 const program = new Command();
 
 OpenAPI.BASE = (process.env.CODACY_API_BASE_URL || "https://app.codacy.com").replace(/\/$/, "") + "/api/v3";
-OpenAPI.HEADERS = {
-  "api-token": process.env.CODACY_API_TOKEN || "",
-  "X-Codacy-Origin": "cli-cloud-tool",
-};
+// No token here. Which header carries it depends on the token kind, which isn't
+// known until a command resolves its auth — every API path installs headers
+// first, via `resolveAuth()` in commands or `applyAccountToken()` in `login`.
+// Baking in `api-token` would send an empty account header on every
+// repository-token run. Shared with `applyAuthHeaders`, which replaces
+// OpenAPI.HEADERS wholesale and would otherwise drop anything set only here.
+OpenAPI.HEADERS = { ...BASE_HEADERS };
 
 program
   .name("codacy-cloud-cli")
   .description("A CLI tool to interact with the Codacy API")
   .version(cliVersion)
   .option("-o, --output <format>", "output format (table or json)", "table")
+  // Declared on the root so `codacy --repository-token X tools` parses; each
+  // command declares its own too, so it also works after the command name.
+  .addOption(repositoryTokenOption())
   // update-notifier reads `--no-update-notifier` straight from argv to opt out.
   // Declared here (and on every subcommand below) so Commander accepts the flag
   // instead of failing with "unknown option" when a user passes it.

@@ -228,7 +228,15 @@ export function printImportPreview(
   preview: ImportPreview,
   repoName: string,
   force: boolean,
+  /**
+   * Whether the token in use can unlink coding standards. False under a
+   * repository token, where both remedies the default hint suggests (`--force`
+   * and `codacy repository --unlink-standard`) are themselves refused — so the
+   * hint has to point somewhere the user can actually go.
+   */
+  options: { canUnlinkStandards?: boolean } = {},
 ): void {
+  const canUnlinkStandards = options.canUnlinkStandards ?? true;
   console.log();
 
   // Standards
@@ -246,7 +254,9 @@ export function printImportPreview(
       );
       console.log(
         ansis.yellow(
-          "  Standards may override tool configuration. Use --force to unlink them, or --unlink-standard to remove them manually.",
+          canUnlinkStandards
+            ? "  Standards may override tool configuration. Use --force to unlink them, or --unlink-standard to remove them manually."
+            : "  Standards may override tool configuration. They can't be unlinked with a repository token — unlink them in Codacy (Repository > Settings > Coding standards), or re-run with an account API token.",
         ),
       );
     }

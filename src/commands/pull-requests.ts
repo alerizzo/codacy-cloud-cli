@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import {
@@ -167,6 +167,7 @@ export function registerPullRequestsCommand(program: Command) {
       "maximum number of pull requests to return (default: 100, max: 1000)",
       "100",
     )
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -185,7 +186,7 @@ Examples:
       repositoryArg?: string,
     ) {
       try {
-        checkApiToken();
+        resolveAccountAuth(this, "Codacy does not accept repository tokens on the pull request endpoints");
 
         const { provider, organization, repository } = resolveRepoArgs(
           [providerArg, organizationArg, repositoryArg],
