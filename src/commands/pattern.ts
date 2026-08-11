@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import { getOutputFormat, pickDeep, printJson } from "../utils/output";
@@ -40,6 +40,7 @@ export function registerPatternCommand(program: Command) {
       (val: string, acc: string[]) => [...acc, val],
       [] as string[],
     )
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -60,7 +61,7 @@ Examples:
       patternIdArg?: string,
     ) {
       try {
-        checkApiToken();
+        resolveAuth(this);
         const { provider, organization, repository, trailingArgs } =
           resolveRepoArgs(
             [providerArg, organizationArg, repositoryArg, toolNameArg, patternIdArg],

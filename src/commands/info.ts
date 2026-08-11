@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 import {
   createTable,
@@ -18,6 +18,7 @@ export function registerInfoCommand(program: Command) {
     .command("info")
     .alias("i")
     .description("Show authenticated user information and organizations")
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -27,7 +28,7 @@ Examples:
     )
     .action(async function (this: Command) {
       try {
-        checkApiToken();
+        resolveAccountAuth(this, "it reads account-level data (your profile and organizations)");
         const format = getOutputFormat(this);
         const spinner = ora("Fetching user info...").start();
 

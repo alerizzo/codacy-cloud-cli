@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 import {
   createTable,
@@ -43,6 +43,7 @@ export function registerRepositoriesCommand(program: Command) {
     .argument("<provider>", "git provider (gh, gl, or bb)")
     .argument("<organization>", "organization name")
     .option("-s, --search <query>", "filter repositories by name")
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -58,7 +59,7 @@ Examples:
       options: { search?: string },
     ) {
       try {
-        checkApiToken();
+        resolveAccountAuth(this, "it reads organization-level data (every repository in the organization)");
         const format = getOutputFormat(this);
         const spinner = ora("Fetching repositories...").start();
 

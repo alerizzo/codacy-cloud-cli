@@ -3,7 +3,11 @@ import ansis from "ansis";
 import ora from "ora";
 import { AccountService } from "../api/client/services/AccountService";
 import { handleError } from "../utils/error";
-import { updateApiHeaders } from "../utils/auth";
+import {
+  applyAccountToken,
+  repositoryTokenOption,
+  warnUnusedRepositoryToken,
+} from "../utils/auth";
 import {
   saveCredentials,
   getCredentialsPath,
@@ -14,19 +18,32 @@ export function registerLoginCommand(program: Command) {
   program
     .command("login")
     .description("Authenticate with Codacy by storing your API token")
-    .option("-t, --token <token>", "API token (skips interactive prompt)")
+    .option("-t, --token <token>", "account API token (skips interactive prompt)")
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
 Examples:
   $ codacy login
-  $ codacy login --token <your-api-token>
+  $ codacy login --token <your-account-api-token>
 
 Get your token at: https://app.codacy.com/account/access-management
-  My Account > Access Management > API Tokens`,
+  My Account > Access Management > API Tokens
+
+login stores an account API token. Repository (project) tokens are not stored —
+pass them per command with --repository-token, or set CODACY_PROJECT_TOKEN.`,
     )
-    .action(async (options) => {
+    .action(async function (this: Command, options) {
       try {
+        // login stores account tokens only: it validates against /user, which a
+        // repository token can never reach, and the credentials store holds a
+        // single bare token with no record of its kind.
+        warnUnusedRepositoryToken(
+          this,
+          "`codacy login`, which stores an account API token. " +
+            "Pass a repository token per command with --repository-token, or set CODACY_PROJECT_TOKEN.",
+        );
+
         let token: string;
 
         if (options.token) {
@@ -56,7 +73,7 @@ Get your token at: https://app.codacy.com/account/access-management
 
         const spinner = ora("Validating token...").start();
 
-        updateApiHeaders(token);
+        applyAccountToken(token);
 
         let userName: string;
         let userEmail: string;
@@ -67,8 +84,12 @@ Get your token at: https://app.codacy.com/account/access-management
         } catch (apiErr: any) {
           spinner.fail("Authentication failed.");
           if (apiErr?.status === 401) {
+            // A repository token lands here too — it is rejected by /user by
+            // design — so name that case rather than only implying a bad token.
             throw new Error(
-              "Invalid API token. Check that it is correct and not expired.",
+              "Invalid account API token. Check that it is correct and not expired. " +
+                "If this is a repository (project) token, it can't be used to log in — " +
+                "pass it per command with --repository-token, or set CODACY_PROJECT_TOKEN.",
             );
           }
           if (typeof apiErr?.status === "number") {

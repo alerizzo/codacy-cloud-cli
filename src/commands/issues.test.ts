@@ -1982,4 +1982,68 @@ describe("issues command", () => {
       ).not.toHaveBeenCalled();
     });
   });
+
+  describe("with a repository token", () => {
+    function expectRefusal(argv: string[]) {
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      return expect(
+        program.parseAsync([
+          "node", "test", "issues", "gh", "test-org", "test-repo",
+          ...argv, "--repository-token", "rt",
+        ]),
+      ).rejects.toThrow("process.exit called");
+    }
+
+    it("lists issues — searchRepositoryIssues accepts a repository token", async () => {
+      vi.mocked(AnalysisService.searchRepositoryIssues).mockResolvedValue({
+        data: mockIssues as any,
+        pagination: undefined,
+      });
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--repository-token", "rt",
+      ]);
+
+      expect(AnalysisService.searchRepositoryIssues).toHaveBeenCalled();
+    });
+
+    it("shows the overview — issuesOverview accepts a repository token", async () => {
+      vi.mocked(AnalysisService.issuesOverview).mockResolvedValue(
+        mockOverview as any,
+      );
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "issues", "gh", "test-org", "test-repo",
+        "--overview", "--repository-token", "rt",
+      ]);
+
+      expect(AnalysisService.issuesOverview).toHaveBeenCalled();
+    });
+
+    it("refuses --ignored without querying the ignored-issues endpoint", async () => {
+      await expectRefusal(["--ignored"]);
+
+      expect(
+        AnalysisService.searchRepositoryIgnoredIssues,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("refuses --ignore before fetching anything to ignore", async () => {
+      await expectRefusal(["--ignore", "-y"]);
+
+      // The refusal must land before the fetch-all sweep, not just before the
+      // bulk call — otherwise a repository token pages the whole issue list
+      // only to be rejected at the end.
+      expect(AnalysisService.searchRepositoryIssues).not.toHaveBeenCalled();
+      expect(AnalysisService.bulkIgnoreIssues).not.toHaveBeenCalled();
+    });
+  });
 });

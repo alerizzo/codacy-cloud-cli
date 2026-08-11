@@ -431,4 +431,137 @@ describe("tools command", () => {
       );
     });
   });
+
+  describe("with a repository token", () => {
+    const configContent = JSON.stringify({
+      version: 1,
+      metadata: {
+        repositoryId: null,
+        repositoryName: null,
+        createdAt: "2025-01-01",
+        updatedAt: "2025-01-01",
+        languages: ["TypeScript"],
+      },
+      tools: [{ toolId: "ESLint", patterns: [{ patternId: "no-unused-vars" }] }],
+    });
+    const tmpConfigPath = "/tmp/test-import-repo-token.json";
+
+    /** Mocks the import flow, with `standards` controlling the --force path. */
+    function setupImport(standards: { id: number; name: string }[]) {
+      fs.writeFileSync(tmpConfigPath, configContent);
+      vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(
+        undefined as any,
+      );
+      vi.mocked(AnalysisService.configureTool).mockResolvedValue(undefined as any);
+      vi.spyOn(importConfig, "fetchAllTools").mockResolvedValue([
+        {
+          uuid: "uuid-eslint",
+          name: "ESLint",
+          shortName: "eslint",
+          prefix: "ESLint_",
+          languages: ["TypeScript"],
+          clientSide: false,
+          standalone: false,
+          configurable: true,
+        },
+      ] as any);
+      vi.spyOn(importConfig, "getLocalSupportedToolIds").mockResolvedValue([
+        "ESLint",
+      ]);
+      vi.mocked(AnalysisService.getRepositoryWithAnalysis).mockResolvedValue({
+        data: {
+          repository: {
+            provider: "gh",
+            owner: "test-org",
+            name: "test-repo",
+            standards,
+            languages: [],
+            problems: [],
+          },
+        },
+      } as any);
+    }
+
+    afterEach(() => {
+      if (fs.existsSync(tmpConfigPath)) fs.unlinkSync(tmpConfigPath);
+    });
+
+    it("lists tools — listRepositoryTools accepts a repository token", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "tools", "gh", "test-org", "test-repo",
+        "--repository-token", "rt",
+      ]);
+
+      expect(AnalysisService.listRepositoryTools).toHaveBeenCalled();
+    });
+
+    it("imports a configuration — configureTool accepts a repository token", async () => {
+      setupImport([]);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath, "-y", "--repository-token", "rt",
+      ]);
+
+      expect(getAllOutput()).toContain("imported successfully");
+    });
+
+    it("refuses --force when standards would actually be unlinked", async () => {
+      setupImport([{ id: 100, name: "Security" }]);
+      vi.spyOn(process, "exit").mockImplementation(() => {
+        throw new Error("process.exit called");
+      });
+
+      const program = createProgram();
+      await expect(
+        program.parseAsync([
+          "node", "test", "tools", "gh", "test-org", "test-repo",
+          "--import", tmpConfigPath, "--force", "-y", "--repository-token", "rt",
+        ]),
+      ).rejects.toThrow("process.exit called");
+
+      expect(
+        CodingStandardsService.applyCodingStandardToRepositories,
+      ).not.toHaveBeenCalled();
+      // Nothing may be applied: the user must never approve — or half-execute —
+      // a plan that says "will stop following", since leaving the standard in
+      // place while reconfiguring tools is the exact state --force prevents.
+      expect(AnalysisService.configureTool).not.toHaveBeenCalled();
+      expect(getAllOutput()).not.toContain("will stop following");
+    });
+
+    it("warns but proceeds when --force has no standards to unlink", async () => {
+      setupImport([]);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath, "--force", "-y", "--repository-token", "rt",
+      ]);
+
+      const warnings = (console.error as ReturnType<typeof vi.fn>).mock.calls
+        .flat()
+        .join("\n");
+      expect(warnings).toContain("--force ignored");
+      expect(getAllOutput()).toContain("imported successfully");
+    });
+
+    it("points at Codacy rather than --force in the standards hint", async () => {
+      setupImport([{ id: 100, name: "Security" }]);
+      vi.spyOn(prompt, "confirmAction").mockResolvedValue(false);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath, "--repository-token", "rt",
+      ]);
+
+      const output = getAllOutput();
+      // Both remedies the default hint suggests are themselves refused here.
+      expect(output).toContain("can't be unlinked with a repository token");
+      expect(output).not.toContain("Use --force to unlink them");
+    });
+  });
 });

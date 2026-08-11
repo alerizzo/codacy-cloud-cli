@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import {
@@ -179,6 +179,7 @@ export function registerPatternsCommand(program: Command) {
     .option("-r, --recommended", "show only recommended patterns")
     .option("-E, --enable-all", "bulk enable matching patterns")
     .option("-X, --disable-all", "bulk disable matching patterns")
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -199,7 +200,7 @@ Examples:
       toolNameArg?: string,
     ) {
       try {
-        checkApiToken();
+        resolveAuth(this);
         const { provider, organization, repository, trailingArgs } =
           resolveRepoArgs(
             [providerArg, organizationArg, repositoryArg, toolNameArg],

@@ -1,7 +1,13 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import {
+  fetchIfAccountToken,
+  repositoryTokenOption,
+  repositoryTokenSkipNote,
+  requireAccountToken,
+  resolveAuth,
+} from "../utils/auth";
 import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import {
@@ -148,6 +154,21 @@ function printMetrics(data: RepositoryWithAnalysis): void {
   console.log(table.toString());
 }
 
+/**
+ * Fallbacks for the two dashboard calls a repository token can't make. Used both
+ * when we deliberately skip them and when they fail for an account token that
+ * lacks access — the rest of the dashboard is worth rendering either way. The
+ * explicit `pagination: undefined` keeps `prsResponse.pagination` type-checking
+ * across the union with the real response.
+ */
+function noPullRequests(): { data: PullRequestWithAnalysis[]; pagination: undefined } {
+  return { data: [], pagination: undefined };
+}
+
+function noCoverageReports(): { data: { hasCoverageOverview: boolean } } {
+  return { data: { hasCoverageOverview: false } };
+}
+
 function printPullRequests(pullRequests: PullRequestWithAnalysis[]): void {
   const open = pullRequests.filter(
     (pr) =>
@@ -239,6 +260,7 @@ export function registerRepositoryCommand(program: Command) {
     )
     .option("-L, --link-standard <id>", "link a coding standard to this repository (by standard ID)")
     .option("-K, --unlink-standard <id>", "unlink a coding standard from this repository (by standard ID)")
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -262,14 +284,34 @@ Examples:
       repositoryArg?: string,
     ) {
       try {
-        checkApiToken();
+        const auth = resolveAuth(this);
+        const opts = this.opts();
+
+        // A repository (project) token is scoped to one repository's analysis
+        // data; every action below reaches an organization- or account-level
+        // resource, so Codacy rejects it. Refuse before `resolveRepoArgs`, which
+        // shells out to git and prints an auto-detection line — misleading ahead
+        // of a refusal.
+        const ACCOUNT_ONLY_ACTIONS = [
+          { opt: "add", flag: "--add", why: "adding a repository to Codacy is an account-level operation" },
+          { opt: "remove", flag: "--remove", why: "removing a repository from Codacy is an account-level operation" },
+          { opt: "follow", flag: "--follow", why: "following a repository is tied to your Codacy account" },
+          { opt: "unfollow", flag: "--unfollow", why: "following a repository is tied to your Codacy account" },
+          { opt: "linkStandard", flag: "--link-standard", why: "coding standards are managed at the organization level" },
+          { opt: "unlinkStandard", flag: "--unlink-standard", why: "coding standards are managed at the organization level" },
+        ] as const;
+        for (const action of ACCOUNT_ONLY_ACTIONS) {
+          if (opts[action.opt]) {
+            requireAccountToken(auth, `codacy repository ${action.flag}`, action.why);
+          }
+        }
+
         const { provider, organization, repository } = resolveRepoArgs(
           [providerArg, organizationArg, repositoryArg],
           0,
           "repository",
           [],
         );
-        const opts = this.opts();
 
         // ── Action: add ──────────────────────────────────────────────────
         if (opts.add) {
@@ -490,16 +532,28 @@ Examples:
         const format = getOutputFormat(this);
         const spinner = ora("Fetching repository details...").start();
 
+        // Pull requests and coverage reports are outside a repository token's
+        // scope — Codacy rejects them as if no token had been sent. Skip the
+        // requests rather than firing two we know will fail, and keep .catch()
+        // on the pull request call so an account token that lacks access
+        // degrades the same way instead of losing the whole dashboard (its three
+        // sibling calls were already guarded).
+        let prsUnavailable = auth.kind !== "account-token";
         const [repoResponse, prsResponse, issuesResponse, commitsResponse, coverageReportsResponse] = await Promise.all([
           AnalysisService.getRepositoryWithAnalysis(
             provider,
             organization,
             repository,
           ),
-          AnalysisService.listRepositoryPullRequests(
-            provider,
-            organization,
-            repository,
+          fetchIfAccountToken(auth, noPullRequests(), () =>
+            AnalysisService.listRepositoryPullRequests(
+              provider,
+              organization,
+              repository,
+            ).catch(() => {
+              prsUnavailable = true;
+              return noPullRequests();
+            }),
           ),
           AnalysisService.issuesOverview(provider, organization, repository),
           AnalysisService.listRepositoryCommits(
@@ -510,12 +564,14 @@ Examples:
             undefined,
             1,
           ).catch(() => ({ data: [] })),
-          RepositoryService.listCoverageReports(
-            provider,
-            organization,
-            repository,
-            1,
-          ).catch(() => ({ data: { hasCoverageOverview: false } })),
+          fetchIfAccountToken(auth, noCoverageReports(), () =>
+            RepositoryService.listCoverageReports(
+              provider,
+              organization,
+              repository,
+              1,
+            ).catch(() => noCoverageReports()),
+          ),
         ]);
 
         spinner.stop();
@@ -533,8 +589,13 @@ Examples:
               ...data,
               fileCount: data.coverage?.numberTotalFiles,
             },
+            // Always an array, never null or absent, so `jq '.pullRequests[]'`
+            // and `| length` keep working. `unavailable` is what distinguishes
+            // "no open pull requests" from "couldn't look"; pickDeep drops
+            // undefined, so it stays absent whenever the data is real.
             pullRequests,
             issuesOverview: issuesCounts,
+            unavailable: prsUnavailable ? ["pullRequests"] : undefined,
           }, [
             // About
             "repository.repository.provider",
@@ -563,6 +624,8 @@ Examples:
             "pullRequests",
             // Issues Overview
             "issuesOverview",
+            // Sections that couldn't be fetched with the token in use
+            "unavailable",
           ]));
           return;
         }
@@ -570,12 +633,28 @@ Examples:
         printAbout(data, headCommit, expectsCoverage, hasCoverageData);
         printSetup(data);
         printMetrics(data);
-        printPullRequests(pullRequests);
+        if (prsUnavailable) {
+          // Keep the section header: a section that silently vanishes reads as a
+          // bug, and printPullRequests([]) would claim "No open pull requests",
+          // which is a different (and false) statement.
+          printSection("Open Pull Requests");
+          console.log(
+            ansis.dim(
+              `  ${
+                auth.kind === "account-token"
+                  ? "Could not load pull requests."
+                  : repositoryTokenSkipNote("pull requests")
+              }`,
+            ),
+          );
+        } else {
+          printPullRequests(pullRequests);
 
-        printPaginationWarning(
-          prsResponse.pagination,
-          "Not all pull requests are shown.",
-        );
+          printPaginationWarning(
+            prsResponse.pagination,
+            "Not all pull requests are shown.",
+          );
+        }
 
         printIssuesOverview(issuesCounts);
       } catch (err) {

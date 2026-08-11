@@ -22,7 +22,11 @@ npm link
 
 ## Authentication
 
-Log in interactively (recommended):
+The CLI accepts two kinds of token.
+
+### Account API token
+
+Reaches every organization and repository your account can see. Log in interactively (recommended):
 
 ```bash
 codacy login
@@ -38,6 +42,38 @@ You can get a token from **Codacy > My Account > Access Management > API Tokens*
 
 The `login` command stores the token encrypted at `~/.codacy/credentials`. The environment variable takes precedence over stored credentials when both are present.
 
+### Repository (project) token
+
+Scoped to a single repository — the right choice for CI, since a leaked token can't reach anything else. Get one from **Codacy > Repository > Settings > Integrations > Project API token**.
+
+```bash
+codacy tools --repository-token your-repository-token
+# or, for a whole CI job:
+export CODACY_PROJECT_TOKEN=your-repository-token
+```
+
+Codacy accepts repository tokens on a **limited set of repository-scoped operations**, so some commands require an account token and say so explicitly rather than failing with a generic authorization error:
+
+| Works with a repository token | Requires an account token |
+|---|---|
+| `tools`, `tool`, `patterns`, `pattern` | `info`, `repositories` |
+| `issues` (including `--overview`) | `issues --ignore`, `issues --ignored`, `issue` |
+| `repository`, `repository --reanalyze` | `repository --add`/`--remove`/`--follow`/`--unfollow`/`--link-standard`/`--unlink-standard` |
+| | `pull-request`, `pull-requests`, `ls`, `directories`, `findings`, `finding` |
+
+`codacy repository` works, but omits the pull request and coverage sections — those endpoints don't accept repository tokens. In `--output json` it marks them as `"unavailable": ["pullRequests"]`.
+
+`codacy login` stores account tokens only; pass repository tokens per command or via `CODACY_PROJECT_TOKEN`.
+
+### Token precedence
+
+1. `--repository-token <token>`
+2. `CODACY_PROJECT_TOKEN`
+3. `CODACY_API_TOKEN`
+4. Stored credentials from `codacy login`
+
+An explicit `--repository-token` wins outright, so a deliberately scoped run is never silently widened by an environment variable or a stale login. Note that `CODACY_PROJECT_TOKEN` outranks `CODACY_API_TOKEN` (matching the [Codacy Analysis CLI](https://github.com/codacy/analysis-cli)) — unset it if you want your account token used.
+
 ## Usage
 
 ```bash
@@ -50,6 +86,7 @@ codacy <command> --help   # Detailed usage for any command
 | Option | Description |
 |---|---|
 | `-o, --output <format>` | Output format: `table` (default) or `json` |
+| `--repository-token <token>` | Repository (project) token, scoped to one repository (env: `CODACY_PROJECT_TOKEN`) |
 | `-V, --version` | Show version |
 | `-h, --help` | Show help |
 

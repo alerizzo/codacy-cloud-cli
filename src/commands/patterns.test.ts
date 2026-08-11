@@ -844,4 +844,20 @@ describe("patterns command", () => {
       );
     });
   });
+
+  // Every endpoint this command uses is on the repository-token whitelist
+  // (listRepositoryTools, listRepositoryToolPatterns, updateRepositoryToolPatterns,
+  // toolPatternsOverview), so no guard is needed and no account token either.
+  it("lists patterns with only a repository token", async () => {
+    delete process.env.CODACY_API_TOKEN;
+
+    const program = createProgram();
+    await program.parseAsync([
+      "node", "test", "patterns", "gh", "test-org", "test-repo", "eslint",
+      "--repository-token", "rt",
+    ]);
+
+    expect(AnalysisService.listRepositoryTools).toHaveBeenCalled();
+    expect(AnalysisService.listRepositoryToolPatterns).toHaveBeenCalled();
+  });
 });

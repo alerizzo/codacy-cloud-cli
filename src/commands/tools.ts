@@ -2,7 +2,12 @@ import * as path from "path";
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import {
+  RemoteAuth,
+  repositoryTokenOption,
+  requireAccountToken,
+  resolveAuth,
+} from "../utils/auth";
 import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import { createTable, getOutputFormat, pickDeep, printJson } from "../utils/output";
@@ -73,6 +78,44 @@ function printImportErrors(failures: ImportFailure[]): void {
   console.log();
 }
 
+/**
+ * Enforces that `--force` can actually do what its preview promises.
+ *
+ * Unlinking coding standards is organization-level, so `--force` can't run under
+ * a repository token. This must be called *before* the preview is printed and
+ * approved: otherwise the user confirms a plan that says "will stop following 1
+ * coding standard" and cannot execute it, landing in exactly the state `--force`
+ * exists to prevent — tools reconfigured while a standard still overrides them.
+ *
+ * Only refuses when it would actually do something, though. With no standards to
+ * unlink, `--force` iterates an empty list and its preview block is skipped
+ * entirely; refusing a genuine no-op would break anyone with `--force` baked
+ * into a CI script.
+ */
+const guardForceUnlink = (
+  auth: RemoteAuth,
+  standardsToUnlink: number,
+  force: boolean,
+): void => {
+  if (!force || auth.kind === "account-token") return;
+
+  if (standardsToUnlink > 0) {
+    requireAccountToken(
+      auth,
+      "codacy tools --import --force",
+      "unlinking coding standards is an organization-level operation. " +
+        "Re-run without --force to import anyway — the coding standard will " +
+        "keep overriding the imported configuration — or unlink it in Codacy first",
+    );
+  }
+
+  console.error(
+    ansis.yellow(
+      "⚠ --force ignored — this repository follows no coding standards to unlink.",
+    ),
+  );
+};
+
 export function registerToolsCommand(program: Command) {
   program
     .command("tools")
@@ -84,6 +127,7 @@ export function registerToolsCommand(program: Command) {
     .option("--import [path]", "import tool configuration from a file (default: .codacy/codacy.config.json)")
     .option("-y, --skip-approval", "skip confirmation prompt during import")
     .option("--force", "unlink all coding standards before importing")
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -103,7 +147,7 @@ Examples:
       repositoryArg?: string,
     ) {
       try {
-        checkApiToken();
+        const auth = resolveAuth(this);
         const { provider, organization, repository } = resolveRepoArgs(
           [providerArg, organizationArg, repositoryArg],
           0,
@@ -154,7 +198,11 @@ Examples:
             localToolIds,
           );
 
-          printImportPreview(preview, repository, Boolean(opts.force));
+          guardForceUnlink(auth, preview.standards.length, Boolean(opts.force));
+
+          printImportPreview(preview, repository, Boolean(opts.force), {
+            canUnlinkStandards: auth.kind === "account-token",
+          });
 
           // Confirm
           if (!opts.skipApproval) {

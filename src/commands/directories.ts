@@ -2,7 +2,7 @@ import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
 import pluralize from "pluralize";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { createTable, getOutputFormat, printJson } from "../utils/output";
 import { sanitizeText } from "../utils/sanitize";
@@ -191,6 +191,7 @@ export function registerDirectoriesCommand(program: Command) {
       "-d, --direction <direction>",
       "sort direction: asc (ascending) or desc (descending)",
     )
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -210,7 +211,7 @@ Examples:
       options: DirOptions,
     ) {
       try {
-        checkApiToken();
+        resolveAccountAuth(this, "Codacy does not accept repository tokens on the directory listing endpoints");
         const format = getOutputFormat(this);
         const ctx = resolveDirContext(
           providerArg,

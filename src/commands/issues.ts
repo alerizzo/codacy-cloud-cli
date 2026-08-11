@@ -1,7 +1,11 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import {
+  repositoryTokenOption,
+  requireAccountToken,
+  resolveAuth,
+} from "../utils/auth";
 import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import { confirmAction } from "../utils/prompt";
@@ -658,6 +662,7 @@ export function registerIssuesCommand(program: Command) {
       "-y, --skip-confirmation",
       "skip the confirmation prompt when using --ignore (for CI/scripts)",
     )
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -685,14 +690,36 @@ Examples:
       repositoryArg?: string,
     ) {
       try {
-        checkApiToken();
+        const auth = resolveAuth(this);
+        const opts = this.opts();
+
+        // Searching and the overview both accept a repository token; the ignore
+        // endpoints don't. Refuse before `buildFilterBody` (which can hit the
+        // network to resolve tool names) and before the fetch-all + confirmation
+        // prompt inside `executeBulkIgnore`. This also lands ahead of the
+        // flag-combination checks below, which is the right precedence: "your
+        // token can't do this at all" beats "these two flags conflict".
+        if (opts.ignored) {
+          requireAccountToken(
+            auth,
+            "codacy issues --ignored",
+            "listing ignored issues is not available to repository tokens",
+          );
+        }
+        if (opts.ignore) {
+          requireAccountToken(
+            auth,
+            "codacy issues --ignore",
+            "ignoring issues is not available to repository tokens",
+          );
+        }
+
         const { provider, organization, repository } = resolveRepoArgs(
           [providerArg, organizationArg, repositoryArg],
           0,
           "issues",
           [],
         );
-        const opts = this.opts();
         const format = getOutputFormat(this);
         const isOverview = !!opts.overview;
         const listIgnored = !!opts.ignored;

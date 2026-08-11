@@ -43,4 +43,35 @@ describe("logout command", () => {
     expect(deleteCredentials).toHaveBeenCalledOnce();
     expect(console.log).toHaveBeenCalledWith("No stored credentials found.");
   });
+
+  describe("--repository-token", () => {
+    it("warns that the flag is ignored, but still logs out", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(deleteCredentials).mockReturnValue(true);
+
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "logout", "--repository-token", "rt",
+      ]);
+
+      expect(errorSpy.mock.calls.flat().join("\n")).toContain(
+        "--repository-token is ignored by",
+      );
+      expect(deleteCredentials).toHaveBeenCalledOnce();
+    });
+
+    it("stays silent when only CODACY_PROJECT_TOKEN is set", async () => {
+      process.env.CODACY_PROJECT_TOKEN = "env-project-token";
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.mocked(deleteCredentials).mockReturnValue(true);
+
+      const program = createProgram();
+      await program.parseAsync(["node", "test", "logout"]);
+
+      expect(errorSpy.mock.calls.flat().join("\n")).not.toContain(
+        "--repository-token",
+      );
+      delete process.env.CODACY_PROJECT_TOKEN;
+    });
+  });
 });

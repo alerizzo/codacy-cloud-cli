@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { detectRepoContext } from "../utils/git-remote";
 import {
@@ -214,6 +214,7 @@ export function registerFindingsCommand(program: Command) {
     )
     .option("-n, --limit <n>", "maximum number of findings to return (default: 100, max: 1000)", "100")
     .option("-d, --dast-targets <urls>", "comma-separated DAST target URLs")
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -233,7 +234,7 @@ Examples:
       repositoryArg?: string,
     ) {
       try {
-        checkApiToken();
+        resolveAccountAuth(this, "Codacy does not accept repository tokens on the security findings endpoints");
 
         const argCount = [providerArg, organizationArg, repositoryArg].filter(
           (v) => v !== undefined,

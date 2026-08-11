@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import ora from "ora";
 import ansis from "ansis";
-import { checkApiToken } from "../utils/auth";
+import { repositoryTokenOption, resolveAccountAuth } from "../utils/auth";
 import { handleError } from "../utils/error";
 import { resolveRepoArgs } from "../utils/resolve-repo-args";
 import { getOutputFormat, pickDeep, printJson } from "../utils/output";
@@ -29,6 +29,7 @@ export function registerIssueCommand(program: Command) {
     )
     .option("-m, --ignore-comment <comment>", "optional comment for the ignore action", "")
     .option("-U, --unignore", "unignore this issue")
+    .addOption(repositoryTokenOption())
     .addHelpText(
       "after",
       `
@@ -48,7 +49,7 @@ Examples:
       issueIdArg?: string,
     ) {
       try {
-        checkApiToken();
+        resolveAccountAuth(this, "Codacy does not accept repository tokens on the single-issue endpoint; run 'codacy issues' to list issues with a repository token");
         const { provider, organization, repository, trailingArgs } =
           resolveRepoArgs(
             [providerArg, organizationArg, repositoryArg, issueIdArg],
