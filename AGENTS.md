@@ -240,6 +240,8 @@ When completing work, agents **must** update relevant documentation:
 |---|---|---|
 | `CODACY_API_TOKEN` | One of the two | Account API token. Get it from Codacy > Account > API Tokens |
 | `CODACY_PROJECT_TOKEN` | One of the two | Repository (project) token, scoped to one repository. Get it from Codacy > Repository > Settings > Integrations > Project API token. **Outranks `CODACY_API_TOKEN`** — see `SPECS/repository-tokens.md` |
+| `HTTPS_PROXY` / `HTTP_PROXY` | No | Route outbound API requests through an HTTP/HTTPS proxy (case-insensitive; `HTTPS_PROXY` takes precedence). Resolved by `src/utils/proxy.ts`, installed via `undici`'s `ProxyAgent`/`setGlobalDispatcher` in `src/index.ts` before any command runs. |
+| `NO_PROXY` / `no_proxy` | No | Comma-separated hostnames (or `*`) to bypass the proxy for, checked against the Codacy API host. |
 
 ## Useful Context
 

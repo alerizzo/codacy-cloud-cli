@@ -5,6 +5,7 @@ import { cliVersion } from "./version";
 import { getOutputFormat } from "./utils/output";
 import { BASE_HEADERS, repositoryTokenOption } from "./utils/auth";
 import { maybeNotifyUpdate } from "./utils/update-check";
+import { configureProxyFromEnv } from "./utils/proxy";
 import { registerInfoCommand } from "./commands/info";
 import { registerRepositoriesCommand } from "./commands/repositories";
 import { registerRepositoryCommand } from "./commands/repository";
@@ -24,6 +25,12 @@ import { registerLoginCommand } from "./commands/login";
 import { registerLogoutCommand } from "./commands/logout";
 
 const program = new Command();
+
+// Installs an `undici.ProxyAgent` as the global dispatcher when
+// HTTP_PROXY/HTTPS_PROXY is set, so every `fetch()` call below routes through
+// it. No-op when no proxy env var is set. Must run before OpenAPI.BASE/HEADERS
+// are set and before any command is registered/parsed.
+configureProxyFromEnv();
 
 OpenAPI.BASE = (process.env.CODACY_API_BASE_URL || "https://app.codacy.com").replace(/\/$/, "") + "/api/v3";
 // No token here. Which header carries it depends on the token kind, which isn't
