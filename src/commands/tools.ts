@@ -188,6 +188,8 @@ Examples:
 
           spinner.stop();
 
+          const isJson = getOutputFormat(this) === "json";
+
           // Build and display preview
           const preview = await buildImportPreview(
             provider,
@@ -199,13 +201,18 @@ Examples:
             repoResponse.data.repository.standards,
             resolvedPath,
             localToolIds,
+            Boolean(opts.force),
           );
 
           guardForceUnlink(auth, preview.standards.length, Boolean(opts.force));
 
-          printImportPreview(preview, repository, Boolean(opts.force), {
-            canUnlinkStandards: auth.kind === "account-token",
-          });
+          printImportPreview(
+            preview,
+            repository,
+            Boolean(opts.force),
+            { canUnlinkStandards: auth.kind === "account-token" },
+            isJson ? console.error : console.log,
+          );
 
           // Confirm
           if (!opts.skipApproval) {
@@ -218,7 +225,7 @@ Examples:
             }
           }
 
-          console.log();
+          if (!isJson) console.log();
           const execSpinner = ora("Applying configuration...").start();
           const result = await executeImport(
             provider,
@@ -233,7 +240,7 @@ Examples:
 
           execSpinner.stop();
 
-          if (getOutputFormat(this) === "json") {
+          if (isJson) {
             printJson(result);
             return;
           }

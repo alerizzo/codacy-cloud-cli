@@ -13,6 +13,7 @@ import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { CodingStandardsService } from "../api/client/services/CodingStandardsService";
 import { ApiError } from "../api/client/core/ApiError";
+import { patternEnforcedBy } from "./formatting";
 import type ora from "ora";
 
 const execAsync = promisify(exec);
@@ -21,8 +22,6 @@ export interface ResolvedTool {
   configTool: CodacyToolConfig;
   tool: Tool;
   repoTool?: AnalysisTool;
-  // standard-locked patterns stay enabled even when the config file omits them
-  keepEnabledPatternIds?: string[];
 }
 
 export interface ImportSkip {
@@ -203,6 +202,7 @@ export async function buildImportPreview(
   standards: CodingStandardInfo[],
   configPath: string,
   localToolIds?: string[] | null,
+  force: boolean = false,
 ): Promise<ImportPreview> {
   const resolved: ResolvedTool[] = [];
   const unresolvedTools: string[] = [];
@@ -254,39 +254,39 @@ export async function buildImportPreview(
 
   const skipped: ImportSkip[] = [];
 
-  // server returns 409 for standard-enforced tool disables; skip client-side
-  const lockedToolsToDisable = toolsToDisable.filter((t) => t.settings.enabledBy.length > 0);
-  toolsToDisable = toolsToDisable.filter((t) => t.settings.enabledBy.length === 0);
-  for (const t of lockedToolsToDisable) {
-    skipped.push({
-      tool: t.name,
-      standards: t.settings.enabledBy.map((s) => s.name),
-      reason: "enforced by coding standard",
-    });
-  }
+  // --force unlinks standards in executeImport before any disables, so enabledBy is stale here
+  if (!force) {
+    // server returns 409 for standard-enforced tool disables; skip client-side
+    const lockedToolsToDisable = toolsToDisable.filter((t) => t.settings.enabledBy.length > 0);
+    toolsToDisable = toolsToDisable.filter((t) => t.settings.enabledBy.length === 0);
+    for (const t of lockedToolsToDisable) {
+      skipped.push({
+        tool: t.name,
+        standards: t.settings.enabledBy.map((s) => s.name),
+        reason: "enforced by coding standard",
+      });
+    }
 
-  // config-file-driven tools never touch patterns, so skip the fetch for them
-  for (const r of toolsToReconfigure) {
-    if (r.configTool.useLocalConfigurationFile) continue;
+    // config-file-driven tools never touch patterns, so skip the fetch for them
+    for (const r of toolsToReconfigure) {
+      if (r.configTool.useLocalConfigurationFile) continue;
 
-    const configuredPatternIds = new Set(r.configTool.patterns.map((p) => p.patternId));
-    const currentlyEnabled = await fetchEnabledToolPatterns(
-      provider,
-      organization,
-      repository,
-      r.tool.uuid,
-    );
-    // server returns 409 for standard-enforced pattern disables; keep them enabled
-    const locked = currentlyEnabled.filter(
-      (cp) => cp.enabledBy.length > 0 && !configuredPatternIds.has(cp.patternDefinition.id),
-    );
-    if (locked.length > 0) {
-      r.keepEnabledPatternIds = locked.map((cp) => cp.patternDefinition.id);
+      const configuredPatternIds = new Set(r.configTool.patterns.map((p) => p.patternId));
+      const currentlyEnabled = await fetchEnabledToolPatterns(
+        provider,
+        organization,
+        repository,
+        r.tool.uuid,
+      );
+      // bulk reset leaves standard-enforced patterns enabled server-side; report them only
+      const locked = currentlyEnabled.filter(
+        (cp) => patternEnforcedBy(cp).length > 0 && !configuredPatternIds.has(cp.patternDefinition.id),
+      );
       for (const cp of locked) {
         skipped.push({
           tool: r.tool.name,
           patternId: cp.patternDefinition.id,
-          standards: cp.enabledBy.map((s) => s.name),
+          standards: patternEnforcedBy(cp),
           reason: "enforced by coding standard",
         });
       }
@@ -314,6 +314,19 @@ export async function buildImportPreview(
 
 const MAX_PREVIEW_SKIP_LINES = 5;
 
+// Shared by both places skipped tools/patterns are listed (standards block and standalone fallback).
+function printSkippedLines(skipped: ImportSkip[], log: (...args: unknown[]) => void): void {
+  const shown = skipped.slice(0, MAX_PREVIEW_SKIP_LINES);
+  for (const s of shown) {
+    const target = s.patternId ? `${s.tool}:${s.patternId}` : s.tool;
+    log(`  ${target} (${s.standards.join(", ")})`);
+  }
+  const remaining = skipped.length - shown.length;
+  if (remaining > 0) {
+    log(`  ... and ${remaining} more`);
+  }
+}
+
 export function printImportPreview(
   preview: ImportPreview,
   repoName: string,
@@ -325,73 +338,65 @@ export function printImportPreview(
    * hint has to point somewhere the user can actually go.
    */
   options: { canUnlinkStandards?: boolean } = {},
+  log: (...args: unknown[]) => void = console.log,
 ): void {
   const canUnlinkStandards = options.canUnlinkStandards ?? true;
-  console.log();
+  log();
 
   // Standards
   if (preview.standards.length > 0) {
     const names = preview.standards.map((s) => s.name).join(", ");
     if (force) {
-      console.log(
+      log(
         `${repoName} will stop following ${preview.standards.length} ${pluralize("coding standard", preview.standards.length)}: ${names}`,
       );
     } else {
-      console.log(
+      log(
         ansis.yellow(
           `⚠ ${repoName} follows ${preview.standards.length} ${pluralize("coding standard", preview.standards.length)}: ${names}`,
         ),
       );
-      console.log(
+      log(
         ansis.yellow(
           canUnlinkStandards
             ? "  Standards may override tool configuration. Use --force to unlink them, or --unlink-standard to remove them manually."
             : "  Standards may override tool configuration. They can't be unlinked with a repository token — unlink them in Codacy (Repository > Settings > Coding standards), or re-run with an account API token.",
         ),
       );
+      printSkippedLines(preview.skipped, log);
     }
-    console.log();
-  }
-
-  // Skipped: tools/patterns a coding standard enforces
-  if (preview.skipped.length > 0) {
-    console.log("Skipped (enforced by coding standard):");
-    const shown = preview.skipped.slice(0, MAX_PREVIEW_SKIP_LINES);
-    for (const s of shown) {
-      const target = s.patternId ? `${s.tool}:${s.patternId}` : s.tool;
-      console.log(`  ${target} (${s.standards.join(", ")})`);
-    }
-    const remaining = preview.skipped.length - shown.length;
-    if (remaining > 0) {
-      console.log(`  ... and ${remaining} more`);
-    }
-    console.log();
+    log();
+  } else if (preview.skipped.length > 0) {
+    // Should not happen (skipped is only populated alongside standards), but keep it safe.
+    log(ansis.dim("Skipped (enforced by coding standard):"));
+    printSkippedLines(preview.skipped, log);
+    log();
   }
 
   // Local CLI availability warning
   if (!preview.localCliAvailable) {
-    console.log(
+    log(
       ansis.yellow(
         "⚠ Could not query codacy-analysis CLI. No tools will be disabled — only tools in the config will be enabled/reconfigured.",
       ),
     );
-    console.log();
+    log();
   }
 
   // Unresolved tools warning
   if (preview.unresolvedTools.length > 0) {
-    console.log(
+    log(
       ansis.yellow(
         `⚠ ${preview.unresolvedTools.length} ${pluralize("tool", preview.unresolvedTools.length)} in the config could not be matched: ${preview.unresolvedTools.join(", ")}`,
       ),
     );
-    console.log();
+    log();
   }
 
   // Cloud-only tools (unchanged)
   if (preview.cloudOnlyTools.length > 0) {
     const names = preview.cloudOnlyTools.map((t) => t.name).join(", ");
-    console.log(
+    log(
       ansis.dim(
         `${preview.cloudOnlyTools.length} cloud-only ${pluralize("tool", preview.cloudOnlyTools.length)} unchanged: ${names}`,
       ),
@@ -401,7 +406,7 @@ export function printImportPreview(
   // Tools to disable
   if (preview.toolsToDisable.length > 0) {
     const names = preview.toolsToDisable.map((t) => t.name).join(", ");
-    console.log(
+    log(
       `${preview.toolsToDisable.length} ${pluralize("tool", preview.toolsToDisable.length)} will be disabled: ${names}`,
     );
   }
@@ -409,7 +414,7 @@ export function printImportPreview(
   // Tools to enable
   if (preview.toolsToEnable.length > 0) {
     const names = preview.toolsToEnable.map((r) => r.tool.name).join(", ");
-    console.log(
+    log(
       `${preview.toolsToEnable.length} ${pluralize("tool", preview.toolsToEnable.length)} will be enabled: ${names}`,
     );
   }
@@ -417,7 +422,7 @@ export function printImportPreview(
   // Tools to reconfigure
   if (preview.toolsToReconfigure.length > 0) {
     const names = preview.toolsToReconfigure.map((r) => r.tool.name).join(", ");
-    console.log(
+    log(
       `${preview.toolsToReconfigure.length} ${pluralize("tool", preview.toolsToReconfigure.length)} will be reconfigured: ${names}`,
     );
   }
@@ -433,18 +438,18 @@ export function printImportPreview(
     (r) => !r.configTool.useLocalConfigurationFile,
   );
 
-  console.log();
+  log();
   if (patternTools.length > 0) {
-    console.log(
+    log(
       `Existing patterns in ${patternTools.length} ${pluralize("tool", patternTools.length)} will be replaced with the patterns in ${ansis.bold(preview.configPath)}.`,
     );
-    console.log(
+    log(
       `${ansis.bold(String(preview.totalPatterns))} ${pluralize("pattern", preview.totalPatterns)} will be enabled.`,
     );
   }
   if (configFileTools.length > 0) {
     const names = configFileTools.map((r) => r.tool.name).join(", ");
-    console.log(
+    log(
       `${configFileTools.length} ${pluralize("tool", configFileTools.length)} will use their local configuration file: ${names}`,
     );
   }
@@ -531,10 +536,6 @@ export async function executeImport(
         );
 
         const patterns = buildConfigurePatterns(resolved.configTool);
-        // Re-enable standard-locked patterns the reset below would otherwise drop.
-        for (const id of resolved.keepEnabledPatternIds ?? []) {
-          patterns.push({ id, enabled: true });
-        }
         const batches = chunk(patterns, 1000);
 
         for (const batch of batches) {

@@ -422,6 +422,21 @@ describe("tools command", () => {
       expect(output).toContain("error");
     });
 
+    it("should print only the JSON object to stdout with --output json", async () => {
+      const program = createProgram();
+      await program.parseAsync([
+        "node", "test", "--output", "json", "tools", "gh", "test-org", "test-repo",
+        "--import", tmpConfigPath, "-y",
+      ]);
+
+      const calls = (console.log as ReturnType<typeof vi.fn>).mock.calls;
+      expect(calls).toHaveLength(1);
+      const parsed = JSON.parse(calls[0][0] as string);
+      expect(parsed).toHaveProperty("succeeded");
+      expect(parsed).toHaveProperty("failed");
+      expect(parsed).toHaveProperty("skipped");
+    });
+
     // ── Standard-enforced skips ─────────────────────────────────────────
 
     /** A tool enabled by a coding standard, not present in the config file. */

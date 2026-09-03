@@ -16,8 +16,7 @@ vi.mock("../api/client/services/AnalysisService");
 vi.mock("../api/client/services/ToolsService");
 vi.mock("../api/client/services/CodingStandardsService");
 
-// Default: no currently-enabled patterns, so buildImportPreview's per-tool
-// pattern fetch (for reconfigured tools) is a no-op unless a test overrides it.
+// Default: no currently-enabled patterns, so buildImportPreview's per-tool pattern fetch is a no-op unless a test overrides it.
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(AnalysisService.listRepositoryToolPatterns).mockResolvedValue({
@@ -359,6 +358,26 @@ describe("buildImportPreview", () => {
     ]);
   });
 
+  it("should keep a standard-enforced tool in the disable set and skip nothing when force is true", async () => {
+    const repoTools: AnalysisTool[] = [
+      makeRepoTool("uuid-checkov", "Checkov", true, [{ id: 1, name: "Security" }]),
+    ];
+    const config: CodacyConfig = {
+      version: 1,
+      metadata: { repositoryId: null, repositoryName: null, createdAt: "", updatedAt: "", languages: [] },
+      tools: [],
+    };
+
+    const preview = await buildImportPreview(
+      "gh", "org", "repo", config, repoTools, allTools, [], "/test/path", ["checkov"], true,
+    );
+
+    expect(preview.toolsToDisable).toHaveLength(1);
+    expect(preview.toolsToDisable[0].name).toBe("Checkov");
+    expect(preview.skipped).toEqual([]);
+    expect(AnalysisService.listRepositoryToolPatterns).not.toHaveBeenCalled();
+  });
+
   it("should keep a standard-enforced pattern enabled and report it as skipped", async () => {
     vi.mocked(AnalysisService.listRepositoryToolPatterns).mockResolvedValue({
       data: [
@@ -382,7 +401,6 @@ describe("buildImportPreview", () => {
       undefined, undefined, undefined, undefined, undefined,
       true, undefined, undefined, undefined, undefined, 100,
     );
-    expect(preview.toolsToReconfigure[0].keepEnabledPatternIds).toEqual(["p-locked"]);
     expect(preview.skipped).toEqual([
       { tool: "ESLint", patternId: "p-locked", standards: ["OWASP"], reason: "enforced by coding standard" },
     ]);
@@ -511,7 +529,7 @@ describe("executeImport", () => {
     expect(result.skipped).toEqual([]);
   });
 
-  it("should re-enable standard-locked patterns alongside the configured ones, and pass skipped through", async () => {
+  it("should not re-enable locked patterns, but still pass skipped through", async () => {
     vi.mocked(AnalysisService.updateRepositoryToolPatterns).mockResolvedValue(undefined as any);
     vi.mocked(AnalysisService.configureTool).mockResolvedValue(undefined as any);
 
@@ -525,7 +543,6 @@ describe("executeImport", () => {
       makeRepoTool("uuid-eslint", "ESLint", true),
     ], allTools, [], "/test/path");
     // Simulate what buildImportPreview computes when a pattern fetch finds a locked one.
-    preview.toolsToReconfigure[0].keepEnabledPatternIds = ["p-locked"];
     preview.skipped = [
       { tool: "ESLint", patternId: "p-locked", standards: ["OWASP"], reason: "enforced by coding standard" },
     ];
@@ -543,7 +560,6 @@ describe("executeImport", () => {
         useConfigurationFile: false,
         patterns: [
           { id: "p1", enabled: true, parameters: undefined },
-          { id: "p-locked", enabled: true },
         ],
       },
     );
