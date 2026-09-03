@@ -20,6 +20,8 @@ This CLI wraps the [Codacy Cloud API v3](https://api.codacy.com/api/api-docs) us
 | Full API update | `npm run update-api` |
 | Run tests | `npm test` |
 
+`build`, `test`, `check-types`, and `start` auto-run `npm run update-api` on a fresh clone (via a `pre*` `ensure-api-client` hook) if `src/api/client/` doesn't exist yet, so no manual bootstrap step is required.
+
 ## Architecture & Project Structure
 
 ```
