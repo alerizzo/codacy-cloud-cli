@@ -18,17 +18,22 @@
     "dist/"
   ],
   "scripts": {
+    "ensure-api-client": "test -d ./src/api/client || npm run update-api",
+    "pretest": "npm run ensure-api-client",
     "test": "vitest run",
+    "prebuild": "npm run ensure-api-client",
     "build": "tsc -p tsconfig.build.json && chmod +x dist/index.js",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
     "prepublishOnly": "npm run update-api && npm run build",
+    "prestart": "npm run ensure-api-client",
     "start": "npx ts-node src/index.ts",
     "start:dist": "node dist/index.js",
     "fetch-api": "curl https://artifacts.codacy.com/api/codacy-api/57.3.9/apiv3-bundled.yaml -o ./api-v3/api-swagger.yaml --create-dirs",
     "generate-api": "rm -rf ./src/api/client && openapi --input ./api-v3/api-swagger.yaml --output ./src/api/client --useUnionTypes --indent 2 --client fetch",
     "update-api": "npm run fetch-api && npm run generate-api",
+    "precheck-types": "npm run ensure-api-client",
     "check-types": "tsc --noEmit"
   },
   "keywords": [
@@ -56,6 +61,7 @@
     "numeral": "2.0.6",
     "ora": "7.0.1",
     "pluralize": "8.0.0",
+    "undici": "8.10.1",
     "update-notifier": "5.1.0"
   },
   "overrides": {

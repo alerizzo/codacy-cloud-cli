@@ -76,6 +76,27 @@ An explicit `--repository-token` wins outright, so a deliberately scoped run is 
 
 Passing `--repository-token` with an **empty** value is an error rather than a fallback. `--repository-token "$CODACY_PROJECT_TOKEN"` with the secret unset is a common CI mistake, and quietly falling back to an account token would run with much wider access than you asked for. An empty *environment variable*, by contrast, simply means "unset".
 
+### Proxy Support
+
+The CLI respects the standard `HTTPS_PROXY`/`HTTP_PROXY` (and lowercase `https_proxy`/`http_proxy`) environment variables, routing all outbound API requests through the configured proxy. `HTTPS_PROXY` takes precedence over `HTTP_PROXY` when both are set. `NO_PROXY`/`no_proxy` is honored to bypass the proxy for the Codacy API host. No proxy env vars set means no change in behavior.
+
+```bash
+HTTPS_PROXY=http://proxyhost:port codacy info
+```
+
+#### TLS Interception (MITM) Proxies
+
+Some corporate proxies perform TLS interception (man-in-the-middle) using an internal root CA. Unlike `curl`, which trusts your OS certificate store, Node.js uses its own bundled CA list and doesn't read the OS trust store — so requests can fail with `unable to get local issuer certificate` / `UNABLE_TO_GET_LOCAL_ISSUER_CERT` even when `curl -x "$HTTPS_PROXY" -v https://app.codacy.com/api/v3/user` against the same host succeeds. That mismatch (curl works, the CLI doesn't) is the tell-tale sign of this issue.
+
+The fix is to point Node at your corporate CA bundle via the standard `NODE_EXTRA_CA_CERTS` environment variable:
+
+```bash
+export NODE_EXTRA_CA_CERTS=/path/to/corporate-ca-bundle.pem
+codacy login
+```
+
+Ask your IT/security team for this bundle, or export it yourself from your OS/browser certificate trust store (PEM format).
+
 ## Usage
 
 ```bash
