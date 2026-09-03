@@ -16,6 +16,7 @@
 - **Build output:** `dist/` (gitignored)
 - **Build command:** `npm run build` (runs `tsc`)
 - **Build tsconfig:** `tsconfig.build.json` (excludes test files, used for `prepublishOnly`)
+- **API client bootstrap:** `src/api/client/` (gitignored, auto-generated) doesn't exist in a fresh clone. `build`, `test`, `check-types`, and `start` each have a `pre*` script (`ensure-api-client`) that runs `npm run update-api` automatically the first time, so these scripts work out of the box without a manual `npm run update-api` step. It's a no-op once `src/api/client/` exists (CI generates it explicitly beforehand, so this adds no extra fetch there).
 
 ## Global Flag
 
