@@ -21,8 +21,7 @@ export interface ResolvedTool {
   configTool: CodacyToolConfig;
   tool: Tool;
   repoTool?: AnalysisTool;
-  // Patterns locked by a coding standard that must stay enabled even though
-  // the config file doesn't list them (see buildImportPreview).
+  // standard-locked patterns stay enabled even when the config file omits them
   keepEnabledPatternIds?: string[];
 }
 
@@ -147,8 +146,6 @@ export async function fetchAllTools(): Promise<Tool[]> {
   return all;
 }
 
-// Fetches only currently-enabled patterns so we can tell which of them a
-// coding standard enforces before the import diff disables them.
 async function fetchEnabledToolPatterns(
   provider: string,
   organization: string,
@@ -257,8 +254,7 @@ export async function buildImportPreview(
 
   const skipped: ImportSkip[] = [];
 
-  // Tool level: the server 409s a disable enforced by a coding standard —
-  // drop those from the disable set client-side instead of attempting it.
+  // server returns 409 for standard-enforced tool disables; skip client-side
   const lockedToolsToDisable = toolsToDisable.filter((t) => t.settings.enabledBy.length > 0);
   toolsToDisable = toolsToDisable.filter((t) => t.settings.enabledBy.length === 0);
   for (const t of lockedToolsToDisable) {
@@ -269,9 +265,7 @@ export async function buildImportPreview(
     });
   }
 
-  // Pattern level: only for tools whose patterns the import will actually
-  // replace. A config-file-driven tool never touches patterns, so it's not
-  // fetched.
+  // config-file-driven tools never touch patterns, so skip the fetch for them
   for (const r of toolsToReconfigure) {
     if (r.configTool.useLocalConfigurationFile) continue;
 
@@ -282,8 +276,7 @@ export async function buildImportPreview(
       repository,
       r.tool.uuid,
     );
-    // Enabled patterns the file would disable, but a standard enforces —
-    // the server 409s their disable, so keep them enabled instead.
+    // server returns 409 for standard-enforced pattern disables; keep them enabled
     const locked = currentlyEnabled.filter(
       (cp) => cp.enabledBy.length > 0 && !configuredPatternIds.has(cp.patternDefinition.id),
     );
