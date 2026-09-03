@@ -244,6 +244,7 @@ When completing work, agents **must** update relevant documentation:
 | `CODACY_PROJECT_TOKEN` | One of the two | Repository (project) token, scoped to one repository. Get it from Codacy > Repository > Settings > Integrations > Project API token. **Outranks `CODACY_API_TOKEN`** — see `SPECS/repository-tokens.md` |
 | `HTTPS_PROXY` / `HTTP_PROXY` | No | Route outbound API requests through an HTTP/HTTPS proxy (case-insensitive; `HTTPS_PROXY` takes precedence). Resolved by `src/utils/proxy.ts`, installed via `undici`'s `ProxyAgent`/`setGlobalDispatcher` in `src/index.ts` before any command runs. |
 | `NO_PROXY` / `no_proxy` | No | Comma-separated hostnames (or `*`) to bypass the proxy for, checked against the Codacy API host. |
+| `NODE_EXTRA_CA_CERTS` | No | Standard Node.js env var (not implemented by this CLI). Path to a PEM CA bundle to trust in addition to Node's built-in CAs. Fixes `UNABLE_TO_GET_LOCAL_ISSUER_CERT` errors behind TLS-intercepting corporate proxies. |
 
 ## Useful Context
 
