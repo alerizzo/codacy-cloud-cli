@@ -189,7 +189,10 @@ Examples:
           spinner.stop();
 
           // Build and display preview
-          const preview = buildImportPreview(
+          const preview = await buildImportPreview(
+            provider,
+            organization,
+            repository,
             config,
             repoToolsResponse.data,
             allTools,
@@ -230,6 +233,11 @@ Examples:
 
           execSpinner.stop();
 
+          if (getOutputFormat(this) === "json") {
+            printJson(result);
+            return;
+          }
+
           if (result.failed.length === 0) {
             console.log(
               `${ansis.green("✓")} Configuration imported successfully.`,
@@ -248,6 +256,9 @@ Examples:
                 ),
               );
             }
+          }
+          if (result.skipped.length > 0) {
+            console.log(ansis.dim(`  ${result.skipped.length} skipped.`));
           }
           return;
         }

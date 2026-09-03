@@ -8,6 +8,7 @@ import { Tool } from "../api/client/models/Tool";
 import { AnalysisTool } from "../api/client/models/AnalysisTool";
 import { CodingStandardInfo } from "../api/client/models/CodingStandardInfo";
 import { ConfigurePattern } from "../api/client/models/ConfigurePattern";
+import { ConfiguredPattern } from "../api/client/models/ConfiguredPattern";
 import { AnalysisService } from "../api/client/services/AnalysisService";
 import { ToolsService } from "../api/client/services/ToolsService";
 import { CodingStandardsService } from "../api/client/services/CodingStandardsService";
@@ -20,6 +21,16 @@ export interface ResolvedTool {
   configTool: CodacyToolConfig;
   tool: Tool;
   repoTool?: AnalysisTool;
+  // Patterns locked by a coding standard that must stay enabled even though
+  // the config file doesn't list them (see buildImportPreview).
+  keepEnabledPatternIds?: string[];
+}
+
+export interface ImportSkip {
+  tool: string;
+  patternId?: string;
+  standards: string[];
+  reason: string;
 }
 
 export interface ImportPreview {
@@ -32,6 +43,7 @@ export interface ImportPreview {
   totalPatterns: number;
   standards: CodingStandardInfo[];
   configPath: string;
+  skipped: ImportSkip[];
 }
 
 export interface ImportFailure {
@@ -135,6 +147,40 @@ export async function fetchAllTools(): Promise<Tool[]> {
   return all;
 }
 
+// Fetches only currently-enabled patterns so we can tell which of them a
+// coding standard enforces before the import diff disables them.
+async function fetchEnabledToolPatterns(
+  provider: string,
+  organization: string,
+  repository: string,
+  toolUuid: string,
+): Promise<ConfiguredPattern[]> {
+  const all: ConfiguredPattern[] = [];
+  let cursor: string | undefined;
+  do {
+    const response = await AnalysisService.listRepositoryToolPatterns(
+      provider,
+      organization,
+      repository,
+      toolUuid,
+      undefined, // languages
+      undefined, // categories
+      undefined, // severityLevels
+      undefined, // tags
+      undefined, // search
+      true, // enabled
+      undefined, // recommended
+      undefined, // sort
+      undefined, // direction
+      cursor,
+      100,
+    );
+    all.push(...response.data);
+    cursor = response.pagination?.cursor;
+  } while (cursor);
+  return all;
+}
+
 export async function getLocalSupportedToolIds(): Promise<string[] | null> {
   try {
     const { stdout } = await execAsync("codacy-analysis info -f json", {
@@ -150,14 +196,17 @@ export async function getLocalSupportedToolIds(): Promise<string[] | null> {
   }
 }
 
-export function buildImportPreview(
+export async function buildImportPreview(
+  provider: string,
+  organization: string,
+  repository: string,
   config: CodacyConfig,
   repoTools: AnalysisTool[],
   allTools: Tool[],
   standards: CodingStandardInfo[],
   configPath: string,
   localToolIds?: string[] | null,
-): ImportPreview {
+): Promise<ImportPreview> {
   const resolved: ResolvedTool[] = [];
   const unresolvedTools: string[] = [];
 
@@ -206,6 +255,51 @@ export function buildImportPreview(
     cloudOnlyTools = [];
   }
 
+  const skipped: ImportSkip[] = [];
+
+  // Tool level: the server 409s a disable enforced by a coding standard —
+  // drop those from the disable set client-side instead of attempting it.
+  const lockedToolsToDisable = toolsToDisable.filter((t) => t.settings.enabledBy.length > 0);
+  toolsToDisable = toolsToDisable.filter((t) => t.settings.enabledBy.length === 0);
+  for (const t of lockedToolsToDisable) {
+    skipped.push({
+      tool: t.name,
+      standards: t.settings.enabledBy.map((s) => s.name),
+      reason: "enforced by coding standard",
+    });
+  }
+
+  // Pattern level: only for tools whose patterns the import will actually
+  // replace. A config-file-driven tool never touches patterns, so it's not
+  // fetched.
+  for (const r of toolsToReconfigure) {
+    if (r.configTool.useLocalConfigurationFile) continue;
+
+    const configuredPatternIds = new Set(r.configTool.patterns.map((p) => p.patternId));
+    const currentlyEnabled = await fetchEnabledToolPatterns(
+      provider,
+      organization,
+      repository,
+      r.tool.uuid,
+    );
+    // Enabled patterns the file would disable, but a standard enforces —
+    // the server 409s their disable, so keep them enabled instead.
+    const locked = currentlyEnabled.filter(
+      (cp) => cp.enabledBy.length > 0 && !configuredPatternIds.has(cp.patternDefinition.id),
+    );
+    if (locked.length > 0) {
+      r.keepEnabledPatternIds = locked.map((cp) => cp.patternDefinition.id);
+      for (const cp of locked) {
+        skipped.push({
+          tool: r.tool.name,
+          patternId: cp.patternDefinition.id,
+          standards: cp.enabledBy.map((s) => s.name),
+          reason: "enforced by coding standard",
+        });
+      }
+    }
+  }
+
   const totalPatterns = config.tools.reduce(
     (sum, t) => sum + (Array.isArray(t.patterns) ? t.patterns.length : 0),
     0,
@@ -221,8 +315,11 @@ export function buildImportPreview(
     totalPatterns,
     standards,
     configPath,
+    skipped,
   };
 }
+
+const MAX_PREVIEW_SKIP_LINES = 5;
 
 export function printImportPreview(
   preview: ImportPreview,
@@ -259,6 +356,21 @@ export function printImportPreview(
             : "  Standards may override tool configuration. They can't be unlinked with a repository token — unlink them in Codacy (Repository > Settings > Coding standards), or re-run with an account API token.",
         ),
       );
+    }
+    console.log();
+  }
+
+  // Skipped: tools/patterns a coding standard enforces
+  if (preview.skipped.length > 0) {
+    console.log("Skipped (enforced by coding standard):");
+    const shown = preview.skipped.slice(0, MAX_PREVIEW_SKIP_LINES);
+    for (const s of shown) {
+      const target = s.patternId ? `${s.tool}:${s.patternId}` : s.tool;
+      console.log(`  ${target} (${s.standards.join(", ")})`);
+    }
+    const remaining = preview.skipped.length - shown.length;
+    if (remaining > 0) {
+      console.log(`  ... and ${remaining} more`);
     }
     console.log();
   }
@@ -377,7 +489,7 @@ export async function executeImport(
   allTools: Tool[],
   spinner: ReturnType<typeof ora>,
   force: boolean = false,
-): Promise<{ succeeded: string[]; failed: ImportFailure[] }> {
+): Promise<{ succeeded: string[]; failed: ImportFailure[]; skipped: ImportSkip[] }> {
   const succeeded: string[] = [];
   const failed: ImportFailure[] = [];
 
@@ -426,6 +538,10 @@ export async function executeImport(
         );
 
         const patterns = buildConfigurePatterns(resolved.configTool);
+        // Re-enable standard-locked patterns the reset below would otherwise drop.
+        for (const id of resolved.keepEnabledPatternIds ?? []) {
+          patterns.push({ id, enabled: true });
+        }
         const batches = chunk(patterns, 1000);
 
         for (const batch of batches) {
@@ -482,5 +598,5 @@ export async function executeImport(
     }
   }
 
-  return { succeeded, failed };
+  return { succeeded, failed, skipped: preview.skipped };
 }
