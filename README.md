@@ -76,6 +76,14 @@ An explicit `--repository-token` wins outright, so a deliberately scoped run is 
 
 Passing `--repository-token` with an **empty** value is an error rather than a fallback. `--repository-token "$CODACY_PROJECT_TOKEN"` with the secret unset is a common CI mistake, and quietly falling back to an account token would run with much wider access than you asked for. An empty *environment variable*, by contrast, simply means "unset".
 
+### Proxy Support
+
+The CLI respects the standard `HTTPS_PROXY`/`HTTP_PROXY` (and lowercase `https_proxy`/`http_proxy`) environment variables, routing all outbound API requests through the configured proxy. `HTTPS_PROXY` takes precedence over `HTTP_PROXY` when both are set. `NO_PROXY`/`no_proxy` is honored to bypass the proxy for the Codacy API host. No proxy env vars set means no change in behavior.
+
+```bash
+HTTPS_PROXY=http://proxyhost:port codacy info
+```
+
 ## Usage
 
 ```bash
